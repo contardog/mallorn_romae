@@ -1,13 +1,4 @@
-# ELAsTiCC 2 Self supervised learning
+#  Mallorn with RoMAE
 
-Using loading / parquet files from Oracle.
+Using loading / parquet files from Mallorn challenge. TODO add some info and link
 
-## Running
-
-First install the package:
-
-```bash
-pip install .
-```
-
-To download and prepare the data first run the preprocess command:
