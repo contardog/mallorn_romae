@@ -23,5 +23,5 @@ For evaluation:
 
 
 
-TODO add some info and link
+TODO add some info and link e.g. for model sizes and stuff
 
