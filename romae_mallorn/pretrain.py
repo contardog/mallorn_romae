@@ -19,8 +19,16 @@ def pretrain(args):
     
     encoder_args = override_encoder_size(config.model_size)
 
+    ## Forcing the same size of embeddings in decoder but a shallow depth
+    decoder_args = {
+                    "d_model": encoder_args['d_model'],
+                    "nhead": 3,
+                    "depth": 2 ## I guess this is arbitrary? We could have it at =1? 
+                }
+    
     model_config = RoMAEForPreTrainingConfig(
         encoder_config=EncoderConfig(**encoder_args),
+        decoder_config= EncoderConfig(**decoder_args),
         tubelet_size=(1, 1, 1),
         n_channels=2,
         n_pos_dims=2
