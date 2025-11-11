@@ -23,7 +23,7 @@ def pretrain(args):
     decoder_args = {
                     "d_model": encoder_args['d_model'],
                     "nhead": 3,
-                    "depth": 2 ## I guess this is arbitrary? We could have it at =1? 
+                    "depth": 2 ## I guess this is arbitrary? We could have it at = 1? 
                 }
     
     model_config = RoMAEForPreTrainingConfig(
