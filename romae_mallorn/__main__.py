@@ -45,6 +45,9 @@ if __name__ == '__main__':
     pretrain.add_argument("--model_size", type=str, default=None,
                          help="Model size (see RoMAE and this code utils files)")
     
+    pretrain.add_argument("--decoder_size", type=int, default=None,
+                         help="Decoder embedding size (int; default use the same as encoder passed in model_size)")
+    
     pretrain.add_argument("--epochs", type=int, default=None,
                          help="Number of training epochs")
     

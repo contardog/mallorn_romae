@@ -4,7 +4,8 @@ def override_encoder_size(size: str):
     """Get the parameters of a specific RoMAE model encoder size.
     """
     try:
-        get_encoder_size(size)
+        ## Check RoMAE's code for the already predefined sizes with larger dimension of embeddings 
+        return get_encoder_size(size)
     except:
         
         match size:
