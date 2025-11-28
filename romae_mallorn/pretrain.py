@@ -40,6 +40,9 @@ def pretrain(args):
         n_pos_dims=2
     )
 
+    if args.no_cls:
+        model_config.use_cls = False
+        
     print(model_config)
     
     if args.lr is not None:
@@ -52,6 +55,9 @@ def pretrain(args):
         print("Overridding configured number of epochs")
         config.pretrain_epochs = args.epochs
 
+    if args.pretrain_mask_ratio is not None:
+        print("Overriding mask ratio")
+        config.pretrain_mask_ratio = args.pretrain_mask_ratio
 
 
     model = RoMAEForPreTraining(model_config)
@@ -70,13 +76,21 @@ def pretrain(args):
         lr_scaling=True,
         #max_checkpoints = 20,
     )
+    
+    if (args.vega):
+        print("Original trainer config num_dataset_workerS")
+        print(trainer_config.num_dataset_workers)
+        print("Overriding")
+        trainer_config.num_dataset_workers=len(os.sched_getaffinity(0)) #*2
+        print(trainer_config.num_dataset_workers)
+        
     print("Start pretrain")
     
     trainer = Trainer(trainer_config)
     with (
-        MallornDataset(args.test_parquet) as test_dataset,
+        MallornDataset(args.test_parquet, mask_ratio=config.pretrain_mask_ratio) as test_dataset,
         MallornDataset(args.train_parquet,                
-                         gaussian_noise=config.gaussian_noise) as train_dataset
+                         gaussian_noise=config.gaussian_noise, mask_ratio=config.pretrain_mask_ratio) as train_dataset
     ):
         trainer.train(
             train_dataset=train_dataset,

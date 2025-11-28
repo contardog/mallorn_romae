@@ -25,7 +25,7 @@ class MallornConfig(BaseSettings):
     pretrain_batch_size: int = Field(128)
     pretrain_eval_every: int = Field(200) ## In number of batches
     pretrain_save_every: int = Field(200) # In number of batches -- it will retain up to N = max_checkpoints i think
-    pretrain_mask_ratio: float = Field(0.4)
+    pretrain_mask_ratio: float = Field(0.5)
     pretrain_grad_clip: float = Field(10)
     max_checkpoints: int = Field(50)
     
@@ -40,6 +40,7 @@ class MallornConfig(BaseSettings):
     finetune_save_every: int = Field(200)
     finetune_grad_clip: float = Field(10)
     finetune_label_smoothing: float = Field(0.0) #?
+    finetune_mask_ratio: float = Field(0.5)
     
     finetune_use_class_weights: bool = Field(True)
     class_weights: list[float] = Field([0.1, 10]) # Trying something
