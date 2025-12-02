@@ -4,11 +4,57 @@ A simple example dataset.
 import torch
 import torch.nn as nn
 from torch.utils.data.dataset import Dataset
-from romae.utils import gen_mask
+#from romae.utils import gen_mask
 #import joblib
 import polars as pl
-
+import numpy as np
+import random
 ## We need to create a padded version of the full parquet file
+
+
+def gen_mask(mask_ratio, pad_mask, single = False):
+    """
+    Function might not be super well optimized...
+
+    Parameters
+    ----------
+    mask_ratio : either [min_mask, max_mask] or float
+        Percentage of tokens to mask out
+    pad_mask : torch.Tensor
+        A boolean mask where positions in the input corresponding to
+        padding have value True
+    single : bool, optional
+
+    Returns a torch.Tensor
+    """
+    min_ratio = np.min(mask_ratio)
+    max_ratio = np.max(mask_ratio)
+        
+    if min_ratio < 0 or min_ratio > 1 or max_ratio < 0 or max_ratio > 1:
+        raise ValueError(f"Mask ratio must be between 0 and 1, but was given "
+                         f"{mask_ratio}")
+
+    ## Modify here so that the mask_ratio is uniformly chosen between min_mask and max_mask
+    ## One ratio per example in the batch
+    ratio = np.random.uniform(low=min_ratio, high=max_ratio, size=pad_mask.shape[0])
+    
+    per_sample_n = (~pad_mask).sum(dim=1)
+    n_masked_per_sample = (per_sample_n * ratio).ceil().int()
+    mask = torch.zeros(pad_mask.shape, dtype=torch.bool, device=pad_mask.device)
+    for i in range(pad_mask.shape[0]):
+        idxs = random.sample(range(per_sample_n[i].item()), n_masked_per_sample[i].item())
+        for j in idxs:
+            mask[i, j] = True
+    if single:
+        max_masked = torch.tensor(pad_mask.shape[1] * ratio).ceil().int()
+    else:
+        max_masked = n_masked_per_sample.max()
+    diff_from_max = (n_masked_per_sample - max_masked)
+    for i in range(diff_from_max.shape[0]):
+        for j in range(pad_mask.shape[1] + diff_from_max[i], pad_mask.shape[1]):
+            mask[i, j] = True
+
+    return mask
 
 def padd_parquet(parqu_, col_names_to_pad=['FLUXCAL', 'FLUXCALERR', 'MJD', 'BAND']):
     ##  
@@ -31,8 +77,7 @@ def padd_parquet(parqu_, col_names_to_pad=['FLUXCAL', 'FLUXCALERR', 'MJD', 'BAND
         )
         
         ## ADD A TRACK OF THE PADD MASK  
-        if not(padd_mask):
-            
+        if not(padd_mask):            
             parqu_ = parqu_.with_columns(
                 pl.lit(False).repeat_by(
                             pl.col(col).list.len()).list.concat(pl.lit(True).repeat_by(maxlen - pl.col(col).list.len())).alias("PADD_MASK"))
@@ -71,7 +116,7 @@ class MallornDataset(Dataset):
     
 
     def __init__(self, parquet_file, 
-                 mask_ratio: float = 0.5, gaussian_noise: bool = False):
+                 mask_ratio = 0.5, gaussian_noise: bool = False):
         
         self.noise = gaussian_noise
         
@@ -193,7 +238,7 @@ class MallornDatasetwLabel(Dataset):
     
 
     def __init__(self, parquet_file, 
-                 mask_ratio: float = 0.5, gaussian_noise: bool = False):
+                 mask_ratio = 0.5, gaussian_noise: bool = False):
         
         self.noise = gaussian_noise
         
