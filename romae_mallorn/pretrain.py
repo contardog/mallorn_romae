@@ -6,6 +6,10 @@ from romae_mallorn.dataset import MallornDataset
 from romae_mallorn.config import MallornConfig
 from romae_mallorn.utils import override_encoder_size
 
+
+    
+
+
 def pretrain(args):
     """
     Pre-training script which will train RoMAForPreTraining on the data.
