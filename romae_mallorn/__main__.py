@@ -134,6 +134,9 @@ if __name__ == '__main__':
     pretrain_contrastive.add_argument("--cls_contrastive_dim", type=int,  default=None, #default=1.0, 
                          help="Number of feature to use in CLS")
     
+    pretrain_contrastive.add_argument("--no_decode", action="store_true", # default=None, #default=1.0, 
+                         help="If there's no decoding")
+    
     #temperature: float = 0.15
     #projection_dim: int = 32
     #cls_contrastive_dim: Optional[int] = 32  # Split CLS token if set

@@ -6,6 +6,7 @@ import pandas as pd
 import numpy as np
 from romae.model import RoMAEForPreTraining, RoMAEForPreTrainingConfig, EncoderConfig, RoMAEBase, Encoder
 
+from romae.model import _get_attn_mask
 from romae_mallorn.dataset import MallornDataset, MallornDatasetwLabel, gen_mask, padd_parquet
 from romae_mallorn.config import MallornConfig, MallornConfigContrastive
 import polars as pl
@@ -395,6 +396,7 @@ class RoMAEPreTrainingContrastive(RoMAEForPreTraining):
 
             ## DOUBLE CHECK THIS IS CORRECT???
             proj_aug2_scrambled = scramble_according_labels(proj_aug2, labels)
+            
             ## Lets remove the unsupervised
             proj_aug2_scrambled = proj_aug2_scrambled[labels!=-1]
             proj_aug1_sup = proj_aug1[labels!=-1]
@@ -432,8 +434,8 @@ class RoMAEPreTrainingContrastive(RoMAEForPreTraining):
     def forward(self, values: torch.Tensor, mask: torch.Tensor,
                 positions: torch.Tensor, pad_mask=None,
                 label=None, *_, **__):
-        full_ = self.forward_fullinfo(values, mask, positions, pad_mask, labels, self.compute_contrastive, self.decode)
-        return full_['logits'], full['loss']
+        full_ = self.forward_fullinfo(values, mask, positions, pad_mask, label, self.compute_contrastive, self.decode)
+        return full_['logits'], full_['loss']
         
 
 

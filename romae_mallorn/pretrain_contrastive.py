@@ -83,9 +83,9 @@ def pretrain_contrastive(args):
     if args.cls_contrastive_dim is not None:
         print("Overridding configured cls_contrastive_dim")
         contrastive_config.cls_contrastive_dim = args.cls_contrastive_dim
-    if args.aug_contrast_weight is not None:
+    if args.augm_contrast_weight is not None:
         print("Overridding configured aug_contrast_weight")
-        contrastive_config.aug_contrast_weight = args.aug_contrast_weight
+        contrastive_config.aug_contrast_weight = args.augm_contrast_weight
     if args.class_contrast_weight is not None:
         print("Overridding configured class_contrast_weight")
         contrastive_config.class_contrast_weight = args.class_contrast_weight
@@ -95,9 +95,13 @@ def pretrain_contrastive(args):
     if args.recon_weight is not None:
         print("Overridding configured recon_weight")
         contrastive_config.recon_weight = args.recon_weight
-    if args.mask_ratio_contrastive is not None:
+    if args.contrastive_mask_ratio is not None:
         print("Overridding configured mask_ratio_contrastive")
-        contrastive_config.mask_ratio_contrastive = args.mask_ratio_contrastive
+        contrastive_config.mask_ratio_contrastive = args.contrastive_mask_ratio
+
+    if args.no_decode:
+        contrastive_config.decode = False
+        
     #temperature: float = 0.15
     #projection_dim: int = 32
     #cls_contrastive_dim: Optional[int] = 32  # Split CLS token if set
@@ -135,8 +139,8 @@ def pretrain_contrastive(args):
         n_pos_dims=2
     )
 
-    if args.no_cls:
-        model_config.use_cls = False
+    # if args.no_cls:
+    #     model_config.use_cls = False
         
     print(model_config)
     
@@ -166,7 +170,7 @@ def pretrain_contrastive(args):
         config=model_config,
         contrastive_config=contrastive_config,
         augmentation_fn=augmentation
-    ).to(device)
+    ) #.to(device)
     
 
     trainer_config = TrainerConfig(
@@ -196,8 +200,8 @@ def pretrain_contrastive(args):
     
     trainer = Trainer(trainer_config)
     with (
-        MallornDataset(args.test_parquet, mask_ratio=contrastive_config.pretrain_mask_ratio) as test_dataset,
-        MallornDataset(args.train_parquet,                
+        MallornDatasetwLabel(args.test_parquet, mask_ratio=contrastive_config.pretrain_mask_ratio) as test_dataset,
+        MallornDatasetwLabel(args.train_parquet,                
                          gaussian_noise=contrastive_config.gaussian_noise, mask_ratio=contrastive_config.pretrain_mask_ratio) as train_dataset
     ):
         trainer.train(

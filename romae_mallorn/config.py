@@ -73,7 +73,8 @@ class MallornConfigContrastive(BaseSettings):
     class_contrast_weight: float = 1.0
     recon_weight: float = 1.0
     n_views: int = 2
-    mask_ratio_contrastive = 0.5
+    mask_ratio_contrastive: float = 0.5
+    decode: bool = True
 
 
 class MallornConfig(BaseSettings):
