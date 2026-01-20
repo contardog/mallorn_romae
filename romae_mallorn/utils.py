@@ -9,6 +9,24 @@ def override_encoder_size(size: str):
     except:
         
         match size:
+            case "tiny-midshallow10":
+                return {
+                    "d_model": 180,
+                    "nhead": 3,
+                    "depth": 10 #Use to be 2
+                }
+            case "tiny-midshallow8":
+                return {
+                    "d_model": 180,
+                    "nhead": 3,
+                    "depth": 10 #Use to be 2
+                }
+            case "tinyer-midshallow":
+                return {
+                    "d_model": 120,
+                    "nhead": 3,
+                    "depth": 10 #Use to be 2
+                }
             case "very-tiny-shallow":
                 return {
                     "d_model": 60,
