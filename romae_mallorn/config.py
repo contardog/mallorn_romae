@@ -17,7 +17,7 @@ class MallornConfigContrastive(BaseSettings):
     )
     pretrained_model: Optional[str] = Field(None)
     eval_checkpoint: Optional[str] = Field(None)
-    eval_batch_size: Optional[int] = Field(128)
+    eval_batch_size: Optional[int] = Field(32)
     gaussian_noise: Optional[bool] = Field(False)
     model_size: str = Field("super-tiny")
     
@@ -25,7 +25,7 @@ class MallornConfigContrastive(BaseSettings):
     pretrain_lr: float = Field(4e-4)
     pretrain_warmup_steps: int = 20
     pretrain_batch_size: int = Field(128)
-    pretrain_eval_every: int = Field(200) ## In number of batches
+    pretrain_eval_every: int = Field(10000000000) ## In number of batches
     pretrain_save_every: int = Field(200) # In number of batches -- it will retain up to N = max_checkpoints i think
     pretrain_mask_ratio: float = Field(0.5)
     pretrain_grad_clip: float = Field(10)
@@ -67,7 +67,7 @@ class MallornConfigContrastive(BaseSettings):
     """Configuration for contrastive learning"""
     temperature: float = 0.15
     projection_dim: int = 32
-    projection_hidden_dim: int = projection_dim
+    projection_hidden_dim: int = projection_dim ## THIS WAS DUMB, projection_hidden_dim is always 32 now. Duh. Fix after next batch of exp.
     cls_contrastive_dim: Optional[int] = None  # Split CLS token if set
     aug_contrast_weight: float = 1.0
     class_contrast_weight: float = 1.0

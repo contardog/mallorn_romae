@@ -27,23 +27,31 @@ def gen_mask(mask_ratio, pad_mask, single = False):
 
     Returns a torch.Tensor
     """
-    min_ratio = np.min(mask_ratio)
-    max_ratio = np.max(mask_ratio)
+    # min_ratio = np.min(mask_ratio)
+    # max_ratio = np.max(mask_ratio)
         
-    if min_ratio < 0 or min_ratio > 1 or max_ratio < 0 or max_ratio > 1:
+    # if min_ratio < 0 or min_ratio > 1 or max_ratio < 0 or max_ratio > 1:
+    #     raise ValueError(f"Mask ratio must be between 0 and 1, but was given "
+    #                      f"{mask_ratio}")
+
+    # ## Modify here so that the mask_ratio is uniformly chosen between min_mask and max_mask
+    # ## One ratio per example in the batch
+    # ratio = np.random.uniform(low=min_ratio, high=max_ratio) 
+    # #this should have one ratio per batch but idk if it will work, size=pad_mask.shape[0])
+    # # this does not work
+    
+    # per_sample_n = (~pad_mask).sum(dim=1)
+    # n_masked_per_sample = (per_sample_n * ratio).ceil().int()
+    
+    if mask_ratio < 0 or mask_ratio > 1:
         raise ValueError(f"Mask ratio must be between 0 and 1, but was given "
                          f"{mask_ratio}")
 
-    ## Modify here so that the mask_ratio is uniformly chosen between min_mask and max_mask
-    ## One ratio per example in the batch
-    ratio = np.random.uniform(low=min_ratio, high=max_ratio) 
-    #this should have one ratio per batch but idk if it will work, size=pad_mask.shape[0])
-    # this does not work
-    
+    ratio = mask_ratio
     per_sample_n = (~pad_mask).sum(dim=1)
     n_masked_per_sample = (per_sample_n * ratio).ceil().int()
-    
     mask = torch.zeros(pad_mask.shape, dtype=torch.bool, device=pad_mask.device)
+    
     for i in range(pad_mask.shape[0]):
         idxs = random.sample(range(per_sample_n[i].item()), n_masked_per_sample[i].item())
         for j in idxs:
@@ -424,6 +432,93 @@ class MallornDatasetwLabel(Dataset):
         bands = torch.tensor(self.parquet["band_number"][idx].to_numpy()) # this is padded
         positions = torch.stack([bands, times])
         data_var = torch.tensor(self.parquet["FLUXCALERR_pad"][idx]).flatten()
+        data = torch.stack([data, data_var])
+        n_nonpad = pad_mask.sum()
+        positions = nn.functional.pad(positions[:, pad_mask], (0, positions.shape[1]-n_nonpad)).float()
+        data = nn.functional.pad(data[:, pad_mask], (0, data.shape[1]-n_nonpad))[..., None, None].float().swapaxes(0, 1)
+        pad_mask[:] = False
+        pad_mask[n_nonpad:] = True
+        mask = gen_mask_window(self.mask_ratio, pad_mask[None, ...], single=True).squeeze()
+        if self.noise:
+            data = data + torch.randn_like(data) * 0.02
+        sample = {
+            "values": data,
+            "positions": positions,
+            "label": label,
+            "mask": mask,
+            "pad_mask": pad_mask
+        }
+        return sample
+
+
+
+class MallornDatasetwLabelTweak(Dataset):
+    """
+    This assumes some naming in the parquet taken as input -- maybe change to something better when we also adjust for DP1?
+    """
+    
+
+    def __init__(self, parquet_file, 
+                 mask_ratio = 0.5, gaussian_noise: bool = False):
+        
+        self.noise = gaussian_noise
+        
+        self.mask_ratio = mask_ratio
+
+        #if isinstance(parquet_input, str):
+        self.parquet = pl.read_parquet(parquet_file)
+        # else:
+        #     self.parquet = parquet_file
+        
+        
+        self.parquet = padd_parquet(self.parquet)
+        self.parquet = reformat_bands(self.parquet)
+    ## Hopefully we don't need that?
+    # def get_standardization_vals(self):
+    #     import tqdm
+    #     n_samples = self.file["data"].shape[0]
+    #     means = torch.zeros(6)
+    #     stds = torch.zeros(6)
+    #     for i in tqdm.tqdm(range(n_samples), total=n_samples):
+    #         data = self.file["data"][i]
+    #         mask = self.file["mask"][i]
+    #         for j in range(6):
+    #             means[j] += data[:, j][mask[:, j] > 0.5].mean() / n_samples
+    #             stds[j] += data[:, j][mask[:, j] > 0.5].std() / n_samples
+
+    #     return means, stds
+
+
+    
+    
+
+    def __len__(self):
+        return len(self.parquet)
+
+    def __enter__(self):
+        return self
+
+    # def __exit__(self, exc_type, exc_value, traceback):
+    #     self.file.close()
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        del self.parquet
+
+    def __getitem__(self, idx):
+        
+        # FLuxCal here should be the DIFF flux !!
+        data = torch.tensor(self.parquet["FLUXCAL_pad"].to_numpy()[idx]).flatten()
+        pad_mask = ~(torch.tensor(self.parquet["PADD_MASK"].to_numpy()[idx])).flatten()
+        # Adjust if we have alert and flags?
+        # alert_mask = (torch.tensor(self.file["mask_alert"][idx]) > 0.5).flatten()
+        # pad_mask[alert_mask] = True
+        times = torch.tensor(self.parquet["MJD_pad"].to_numpy()[idx].flatten())
+        times[pad_mask] = times[pad_mask] - torch.min(times[pad_mask]) #To avoid big numbers in times
+        
+        label =  self.parquet["binary_class"].to_numpy()[idx] # 
+        bands = torch.tensor(self.parquet["band_number"].to_numpy()[idx]) # this is padded
+        positions = torch.stack([bands, times])
+        data_var = torch.tensor(self.parquet["FLUXCALERR_pad"].to_numpy()[idx]).flatten()
         data = torch.stack([data, data_var])
         n_nonpad = pad_mask.sum()
         positions = nn.functional.pad(positions[:, pad_mask], (0, positions.shape[1]-n_nonpad)).float()

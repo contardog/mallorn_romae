@@ -81,49 +81,61 @@ class ContrastiveLoss(nn.Module):
         self.criterion = nn.CrossEntropyLoss()
     
     def forward(self, features: torch.Tensor, labels: Optional[torch.Tensor] = None, n_views: int = 2):
+    
+        
         batch_size = features.shape[0] // n_views # n_views : number of new-x generated from noising function of choice
-        features = F.normalize(features, dim=1)
-        #print("Feature shape")
-        #print(features.shape)
-        similarity_matrix = torch.matmul(features, features.T) # eq to cosine_sim because of normalization
+            
+        if (batch_size>0):
+            features = F.normalize(features, dim=1)
+            #print("Feature shape")
+            #print(features.shape)
+            similarity_matrix = torch.matmul(features, features.T) # eq to cosine_sim because of normalization
+            
+            #cos_sim = F.cosine_similarity(features[:,None,:], features[None,:,:], dim=-1)
+            #print("Similarity matrix shape")
+            #print(similarity_matrix.shape)
+            
+            if labels is None:
+                labels_matrix = torch.cat([torch.arange(batch_size) for _ in range(n_views)], dim=0)
+                labels_matrix = (labels_matrix.unsqueeze(0) == labels_matrix.unsqueeze(1)).float().to(features.device)
+                #print("When label is None")
+                #print(labels_matrix.shape) batchsize*2 x batchsize*2 
+            else:
+                labels_matrix = (labels.unsqueeze(0) == labels.unsqueeze(1)).float().to(features.device)
+                #print(labels_matrix.shape)
+                ## I"m not sure this will actually work properly -- it might be too driven by the exact same examples?
+                ## Also need to ignore/mask the unsupervised ones because we dont want to distinguish them, altho it might be funny if we do
+                ## as in it's a test to run but make the problem/loss more confusing for the network esp since it's a large frac of the dataset?
+
+            if labels_matrix.shape[0]>0:
+                mask = torch.eye(labels_matrix.shape[0], dtype=torch.bool, device=features.device)
+                labels_matrix = labels_matrix[~mask].view(labels_matrix.shape[0], -1)
+                #print("Not diagonal")
+                #print(labels_matrix.shape)
         
-        #cos_sim = F.cosine_similarity(features[:,None,:], features[None,:,:], dim=-1)
-        #print("Similarity matrix shape")
-        #print(similarity_matrix.shape)
+                ## Compute similarity off diagonal 
+                similarity_matrix = similarity_matrix[~mask].view(similarity_matrix.shape[0], -1)
+                #print(similarity_matrix.shape)
+                positives = similarity_matrix[labels_matrix.bool()].view(labels_matrix.shape[0], -1)
+                #print("Positive shape")
+                #print(positives.shape)
+                negatives = similarity_matrix[~labels_matrix.bool()].view(similarity_matrix.shape[0], -1)
+                #print("Negative shape")
+                #print(negatives.shape)
         
-        if labels is None:
-            labels_matrix = torch.cat([torch.arange(batch_size) for _ in range(n_views)], dim=0)
-            labels_matrix = (labels_matrix.unsqueeze(0) == labels_matrix.unsqueeze(1)).float().to(features.device)
-            #print("When label is None")
-            #print(labels_matrix.shape) batchsize*2 x batchsize*2 
+                ## Cross Entropy Loss: for each row we want the 1st elem (col) to have the highest similarity since it's th ecounter part
+                ## hence label==0
+                logits = torch.cat([positives, negatives], dim=1) / self.temperature
+                target_labels = torch.zeros(logits.shape[0], dtype=torch.long, device=features.device)
+                
+                return self.criterion(logits, target_labels)
+            else:
+                print('this should not happen')
+                return torch.Tensor([0])
+            
         else:
-            labels_matrix = (labels.unsqueeze(0) == labels.unsqueeze(1)).float().to(features.device)
-            #print(labels_matrix.shape)
-            ## I"m not sure this will actually work properly -- it might be too driven by the exact same examples?
-            ## Also need to ignore/mask the unsupervised ones because we dont want to distinguish them, altho it might be funny if we do
-            ## as in it's a test to run but make the problem/loss more confusing for the network esp since it's a large frac of the dataset?
-
-        mask = torch.eye(labels_matrix.shape[0], dtype=torch.bool, device=features.device)
-        labels_matrix = labels_matrix[~mask].view(labels_matrix.shape[0], -1)
-        #print("Not diagonal")
-        #print(labels_matrix.shape)
-
-        ## Compute similarity off diagonal 
-        similarity_matrix = similarity_matrix[~mask].view(similarity_matrix.shape[0], -1)
-        #print(similarity_matrix.shape)
-        positives = similarity_matrix[labels_matrix.bool()].view(labels_matrix.shape[0], -1)
-        #print("Positive shape")
-        #print(positives.shape)
-        negatives = similarity_matrix[~labels_matrix.bool()].view(similarity_matrix.shape[0], -1)
-        #print("Negative shape")
-        #print(negatives.shape)
-
-        ## Cross Entropy Loss: for each row we want the 1st elem (col) to have the highest similarity since it's th ecounter part
-        ## hence label==0
-        logits = torch.cat([positives, negatives], dim=1) / self.temperature
-        target_labels = torch.zeros(logits.shape[0], dtype=torch.long, device=features.device)
-        
-        return self.criterion(logits, target_labels)
+            print('this should not happen either?')
+            return torch.Tensor([0])
 
 
 
@@ -187,6 +199,8 @@ class RoMAEPreTrainingContrastive(RoMAEForPreTraining):
 
         self.compute_contrastive = True # eeeeeehh...
         self.decode= contrastive_config.decode
+
+        self.batch_counter=0
 
 
     def forward_cls(self,
@@ -345,12 +359,26 @@ class RoMAEPreTrainingContrastive(RoMAEForPreTraining):
                 - projections: Contrastive projections
                 - loss_dict: Breakdown of losses
         """
-        if not compute_contrastive:
+        #check if labels are not just unsup
+        nolabelsup = False
+        if labels is not None:
+            # print('Labels')
+            # print(torch.unique(labels))
+
+            if labels[labels==-1].shape[0]==0:
+                nolabelsup = True
+                # print('no label sup')
+            
+        if (not compute_contrastive): # | nolabelsup:
             # Act like normal RoMAEForPreTraining
+            #print("ypassing contrastive loss -- it's a bit extreme since it skips also the augmented one but...")
+            
             #logits, recon_loss = super().forward(values, positions, pad_mask)
             return self.forward_cls(values, positions, pad_mask, decode=True)
-            
-        
+
+        # print('Forward')
+        # print(values.shape)
+
         # Generate augmented views
 
         ## GABY: Add something to have multiple augmentation_fn? Or just do masking for now
@@ -379,47 +407,60 @@ class RoMAEPreTrainingContrastive(RoMAEForPreTraining):
         proj_concat = torch.cat([proj_aug1, proj_aug2], dim=0)
         
         loss_dict = {}
-        total_loss = 0.0
+        total_loss = 0.0 #torch.Tensor([0.0]).to(values.device)
         
         # 1. Augmentation-based contrastive loss
         if self.contrastive_config.aug_contrast_weight > 0:
-            aug_loss = self.aug_contrast_loss(proj_concat, None, self.contrastive_config.n_views)
-            loss_dict['aug_contrast_loss'] = aug_loss.item()
-            total_loss += self.contrastive_config.aug_contrast_weight * aug_loss
-        
+            if proj_concat.shape[0]>0: # Not sure why this wouldnt be the case? // maybe remove
+                # print('in augment contrast')
+                aug_loss = self.aug_contrast_loss(proj_concat, None, self.contrastive_config.n_views)
+                loss_dict['aug_contrast_loss'] = aug_loss.item()
+                total_loss += self.contrastive_config.aug_contrast_weight * aug_loss        
+            # else:
+            #     loss_dict['aug_contrast_loss'] = 0
+                #total_loss += 0
+            
         # 2. Class-based contrastive loss
         if self.contrastive_config.class_contrast_weight > 0 and labels is not None:
 
-            ## GABY URGENT: HANDLE THE UNSUPERVISED ONES !!!! WE DONT WANT TO CONTRASTIVE ON THEM?
-            ## AND ALSO MAKE SURE THAT THERE IS A POSITIVE COUNTERPART OR ACCESS TO THE FULL DATASET
-            ## IN MALLORNDATASET
 
             ## DOUBLE CHECK THIS IS CORRECT???
-            proj_aug2_scrambled = scramble_according_labels(proj_aug2, labels)
-            
-            ## Lets remove the unsupervised
-            proj_aug2_scrambled = proj_aug2_scrambled[labels!=-1]
-            proj_aug1_sup = proj_aug1[labels!=-1]
-            proj_concat_class = torch.cat([proj_aug1_sup, proj_aug2_scrambled], dim=0)
-
-            ## DOUBLE CHECK THIS IS CORRECT???
-            
-            #labels_concat = torch.cat([labels, labels], dim=0)
-            class_loss = self.class_contrast_loss(proj_concat_class, None, self.contrastive_config.n_views)
-            # labels_concat = torch.cat([labels, labels], dim=0)
-            # class_loss = self.class_contrast_loss(proj_concat, labels_concat, self.contrastive_config.n_views)
-            loss_dict['class_contrast_loss'] = class_loss.item()
-            total_loss += self.contrastive_config.class_contrast_weight * class_loss
+            if proj_aug2.shape[0]>0: #  Not sure why this wouldnt be the case? // maybe remove
+                proj_aug2_scrambled = scramble_according_labels(proj_aug2, labels)
+                
+                ## Lets remove the unsupervised
+                proj_aug2_scrambled = proj_aug2_scrambled[labels!=-1]
+                proj_aug1_sup = proj_aug1[labels!=-1]
+                proj_concat_class = torch.cat([proj_aug1_sup, proj_aug2_scrambled], dim=0)
+    
+                ## DOUBLE CHECK THIS IS CORRECT???
+                # print(proj_aug2_scrambled.shape)
+                
+                if proj_aug2_scrambled.shape[0]>0:
+                    # print('in class contrast')
+                    #labels_concat = torch.cat([labels, labels], dim=0)
+                    class_loss = self.class_contrast_loss(proj_concat_class, None, self.contrastive_config.n_views)
+                    # labels_concat = torch.cat([labels, labels], dim=0)
+                    # class_loss = self.class_contrast_loss(proj_concat, labels_concat, self.contrastive_config.n_views)
+                    loss_dict['class_contrast_loss'] = class_loss.item()
+                    total_loss += self.contrastive_config.class_contrast_weight * class_loss
+            #else:
+            #    loss_dict['class_contrast_loss'] = 0
+                #total_loss += 0
         
         # 3. Reconstruction loss (from parent)
         if self.contrastive_config.recon_weight > 0:
+            # print('hello recon')
+            # print(values.shape)
+            # print(outputs_og['recon_loss'])
+            
             ## Could be less expensive because this is an extra fwd pass + GPU mem then
             # logits, recon_loss = super().forward(values, positions, pad_mask)
             loss_dict['recon_loss'] = outputs_og['recon_loss'].item()
-            total_loss += self.contrastive_config.recon_weight * outputs_og['recon_loss'].item()
+            total_loss += self.contrastive_config.recon_weight * outputs_og['recon_loss'] #.item()
         
         loss_dict['total_loss'] = total_loss.item()
-        
+        #print(total_loss)
         return {
             'logits': outputs_og['logits'],
             'loss': total_loss,
@@ -434,9 +475,15 @@ class RoMAEPreTrainingContrastive(RoMAEForPreTraining):
     def forward(self, values: torch.Tensor, mask: torch.Tensor,
                 positions: torch.Tensor, pad_mask=None,
                 label=None, *_, **__):
+
+        #print("REMOVE THIS BEFORE RUNNING FOR REAL!!")
+        #self.batch_counter+=1
+        #print(self.batch_counter)
+        #if self.batch_counter>1360:
         full_ = self.forward_fullinfo(values, mask, positions, pad_mask, label, self.compute_contrastive, self.decode)
         return full_['logits'], full_['loss']
-        
+        #else:
+        #    return torch.tensor(0.0, device=values.device, requires_grad=True), torch.tensor(0.0, device=values.device, requires_grad=True)
 
 
 
