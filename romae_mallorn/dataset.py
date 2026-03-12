@@ -65,6 +65,11 @@ def gen_mask(mask_ratio, pad_mask, single = False):
         for j in range(pad_mask.shape[1] + diff_from_max[i], pad_mask.shape[1]):
             mask[i, j] = True
 
+    
+    if len(mask.shape)==1:
+        mask = mask.unsqueeze(0)
+        
+        
     return mask
 
 def gen_mask_window(mask_ratio, pad_mask, single=False, window_ratio=0.5, window_size_range=(5, 20)):
@@ -186,8 +191,11 @@ def gen_mask_window(mask_ratio, pad_mask, single=False, window_ratio=0.5, window
         for j in range(pad_mask.shape[1] + diff_from_max[i], pad_mask.shape[1]):
             mask[i, j] = True
 
-    
+    if len(mask.shape)==1:
+        mask = mask.unsqueeze(0)
     return mask
+
+    
 
 def padd_parquet(parqu_, col_names_to_pad=['FLUXCAL', 'FLUXCALERR', 'MJD', 'BAND']):
     ##  
@@ -316,7 +324,7 @@ class MallornDataset(Dataset):
         data = nn.functional.pad(data[:, pad_mask], (0, data.shape[1]-n_nonpad))[..., None, None].float().swapaxes(0, 1)
         pad_mask[:] = False
         pad_mask[n_nonpad:] = True
-        mask = gen_mask_window(self.mask_ratio, pad_mask[None, ...], single=True).squeeze()
+        mask = gen_mask(self.mask_ratio, pad_mask[None, ...], single=True).squeeze()
         if self.noise:
             data = data + torch.randn_like(data) * 0.02
         sample = {
@@ -438,7 +446,7 @@ class MallornDatasetwLabel(Dataset):
         data = nn.functional.pad(data[:, pad_mask], (0, data.shape[1]-n_nonpad))[..., None, None].float().swapaxes(0, 1)
         pad_mask[:] = False
         pad_mask[n_nonpad:] = True
-        mask = gen_mask_window(self.mask_ratio, pad_mask[None, ...], single=True).squeeze()
+        mask = gen_mask(self.mask_ratio, pad_mask[None, ...], single=True).squeeze()
         if self.noise:
             data = data + torch.randn_like(data) * 0.02
         sample = {
@@ -525,7 +533,7 @@ class MallornDatasetwLabelTweak(Dataset):
         data = nn.functional.pad(data[:, pad_mask], (0, data.shape[1]-n_nonpad))[..., None, None].float().swapaxes(0, 1)
         pad_mask[:] = False
         pad_mask[n_nonpad:] = True
-        mask = gen_mask_window(self.mask_ratio, pad_mask[None, ...], single=True).squeeze()
+        mask = gen_mask(self.mask_ratio, pad_mask[None, ...], single=True).squeeze()
         if self.noise:
             data = data + torch.randn_like(data) * 0.02
         sample = {

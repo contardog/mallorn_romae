@@ -144,13 +144,25 @@ def scramble_according_labels(view1, labels):
     ## This returns a shuffle of view1 such that labels are preserved.
 
     ## I'm not making sure that all i in newview are different to view1
-    
+    # 
+    # lst = list(range(5))
+    # shfld = lst[:]
+    # while any(lst[i] == shfld[i] for i in range(len(lst))):
+    #     random.shuffle(shfld)
+        
     newview = torch.zeros(view1.shape).to(view1.device)
+    print('In scramble:')
+    print(torch.unique(labels, return_counts=True))
     for k in torch.unique(labels):
         idx_where_k_in_batch = torch.where(labels==k)[0].cpu().numpy()
         #pick_idx = random.choices(list(idx_where_k_in_batch), k=len(idx_where_k_in_batch)) # not sure about the replacement etc etc
-        pick_idx = np.random.choice(list(idx_where_k_in_batch), size=len(idx_where_k_in_batch), replace=True)
+        #pick_idx = np.random.choice(list(idx_where_k_in_batch), size=len(idx_where_k_in_batch), replace=True)
         #print(pick_idx)
+        lst = list(idx_where_k_in_batch)
+        pick_idx = lst[:]
+        if len(idx_where_k_in_batch)>1:
+            while any(lst[i]==pick_idx[i] for i in range(len(lst))): # is this faster on numpy array operation? boh
+                random.shuffle(pick_idx)
         newview[idx_where_k_in_batch,:] = view1[pick_idx,:]
         
     return newview
@@ -217,6 +229,11 @@ class RoMAEPreTrainingContrastive(RoMAEForPreTraining):
         # Convert input to a sequence of tubelets
         x = patchify(self.config.tubelet_size, values)
 
+        print(x.shape)
+        print(mask.shape)
+        
+        if len(mask.shape)==1:
+            mask = mask.unsqueeze(0)
         # Extract all the values that are being masked out
         m_x = x[mask].reshape(b, -1, x.shape[-1])
         m_positions = positions[mask[:, None, ].expand(-1, npd, -1)].reshape(b, npd, -1)
@@ -389,15 +406,14 @@ class RoMAEPreTrainingContrastive(RoMAEForPreTraining):
         # Extract CLS and project for all views
         #_, proj_orig, _ = self.extract_cls_and_project(values, positions, pad_mask)
         # GABY TODO: Maybe here we should keep the CLS/classic forward if we train with the regular RoMAE on top??
-        outputs_og = self.forward_cls(values, mask, positions, pad_mask, decode= (self.contrastive_config.recon_weight > 0))
-        cls_full = outputs_og['embeddings'][:, 0, :]
-        _, proj_orig, _ = self.extract_cls_and_project(cls_full)
 
+        
         ## We could decide to remove the mask form the DataLoader; or to work on top of it?
         ## GABY: TODO  THINK ABOUT THIS --- This makes aug1/aug2 a different "size" as OG but maybe this is good?
-        outputs_aug1 = self.forward_cls(values_aug1, newmask1, positions, pad_mask, decode=False)
+        
+        outputs_aug1 = self.forward_cls(values_aug1, newmask1, positions, pad_mask, decode=(self.contrastive_config.recon_weight > 0))
         _, proj_aug1, _ = self.extract_cls_and_project(outputs_aug1['embeddings'][:,0,:])
-        del outputs_aug1
+        #del outputs_aug1
         
         outputs_aug2 = self.forward_cls(values_aug2, newmask2, positions, pad_mask, decode=False)
         _, proj_aug2, _ = self.extract_cls_and_project(outputs_aug2['embeddings'][:,0,:])
@@ -424,17 +440,16 @@ class RoMAEPreTrainingContrastive(RoMAEForPreTraining):
         if self.contrastive_config.class_contrast_weight > 0 and labels is not None:
 
 
-            ## DOUBLE CHECK THIS IS CORRECT???
             if proj_aug2.shape[0]>0: #  Not sure why this wouldnt be the case? // maybe remove
-                proj_aug2_scrambled = scramble_according_labels(proj_aug2, labels)
                 
                 ## Lets remove the unsupervised
-                proj_aug2_scrambled = proj_aug2_scrambled[labels!=-1]
+                proj_aug2_scrambled = proj_aug2[labels!=-1]
                 proj_aug1_sup = proj_aug1[labels!=-1]
+                
+                proj_aug2_scrambled = scramble_according_labels(proj_aug2_scrambled, labels[labels!=-1])
+                
                 proj_concat_class = torch.cat([proj_aug1_sup, proj_aug2_scrambled], dim=0)
     
-                ## DOUBLE CHECK THIS IS CORRECT???
-                # print(proj_aug2_scrambled.shape)
                 
                 if proj_aug2_scrambled.shape[0]>0:
                     # print('in class contrast')
@@ -456,16 +471,25 @@ class RoMAEPreTrainingContrastive(RoMAEForPreTraining):
             
             ## Could be less expensive because this is an extra fwd pass + GPU mem then
             # logits, recon_loss = super().forward(values, positions, pad_mask)
-            loss_dict['recon_loss'] = outputs_og['recon_loss'].item()
-            total_loss += self.contrastive_config.recon_weight * outputs_og['recon_loss'] #.item()
+
+            # outputs_og = self.forward_cls(values, mask, positions, pad_mask, decode= (self.contrastive_config.recon_weight > 0))
+            # cls_full = outputs_og['embeddings'][:, 0, :]
+            # _, proj_orig, _ = self.extract_cls_and_project(cls_full)
+
+            # TRYING TO AVOID AN EXTRA FORWARD PASS HERE, BUT THIS MEANS THE ACTUAL TOTAL MASK FOR RECONSTRUCTION IS THE COMBINATION 
+            # OF THE MASKING FOR RECON AND MASKING FOR AUGMENTED? DO WE WANT TO KEEP THAT?
+            #loss_dict['recon_loss'] = outputs_og['recon_loss'].item()
+            loss_dict['recon_loss'] = outputs_aug1['recon_loss'].item()
+            
+            total_loss += self.contrastive_config.recon_weight * outputs_aug1['recon_loss'] #.item()
         
         loss_dict['total_loss'] = total_loss.item()
         #print(total_loss)
         return {
-            'logits': outputs_og['logits'],
+            'logits': outputs_aug1['logits'],
             'loss': total_loss,
-            'encoded': outputs_og['embeddings'],
-            'projections': proj_orig,
+            'encoded': outputs_aug1['embeddings'], # not ideal i guess?
+            'projections': proj_aug1,
             'aug1_projections': proj_aug1,
             'aug2_projections': proj_aug2,
             'loss_dict': loss_dict

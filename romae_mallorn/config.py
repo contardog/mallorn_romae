@@ -25,7 +25,7 @@ class MallornConfigContrastive(BaseSettings):
     pretrain_lr: float = Field(4e-4)
     pretrain_warmup_steps: int = 20
     pretrain_batch_size: int = Field(128)
-    pretrain_eval_every: int = Field(10000000000) ## In number of batches
+    pretrain_eval_every: int = Field(3) ## In number of batches
     pretrain_save_every: int = Field(200) # In number of batches -- it will retain up to N = max_checkpoints i think
     pretrain_mask_ratio: float = Field(0.5)
     pretrain_grad_clip: float = Field(10)
