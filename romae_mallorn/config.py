@@ -17,7 +17,7 @@ class MallornConfigContrastive(BaseSettings):
     )
     pretrained_model: Optional[str] = Field(None)
     eval_checkpoint: Optional[str] = Field(None)
-    eval_batch_size: Optional[int] = Field(32)
+    eval_batch_size: Optional[int] = Field(64)
     gaussian_noise: Optional[bool] = Field(False)
     model_size: str = Field("super-tiny")
     
@@ -25,7 +25,7 @@ class MallornConfigContrastive(BaseSettings):
     pretrain_lr: float = Field(4e-4)
     pretrain_warmup_steps: int = 20
     pretrain_batch_size: int = Field(128)
-    pretrain_eval_every: int = Field(3) ## In number of batches
+    pretrain_eval_every: int = Field(4) ## In number of batches
     pretrain_save_every: int = Field(200) # In number of batches -- it will retain up to N = max_checkpoints i think
     pretrain_mask_ratio: float = Field(0.5)
     pretrain_grad_clip: float = Field(10)

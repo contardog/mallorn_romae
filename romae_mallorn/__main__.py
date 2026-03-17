@@ -99,9 +99,16 @@ if __name__ == '__main__':
     
     pretrain_contrastive.add_argument("--train_parquet", type=str, required=True,
                          help="Path to training parquet")
+    
+    # pretrain_contrastive.add_argument("--unsupervised_parquet", type=str, required=False,
+    #                      help="Path to parquet with unsupervised examples if not pre-mixed")
+    
     pretrain_contrastive.add_argument("--test_parquet", type=str, required=True,
                          help="Path to test parquet")
 
+    
+    pretrain_contrastive.add_argument("--K_pos_batch", type=int, default=None, 
+                         help="Used to enforce K positive examples in a batch if declared")
     
     pretrain_contrastive.add_argument("--pretrain_mask_ratio", type=float, default=None, 
                          help="Mask ratio for pretrain-contrastive (MAE)")

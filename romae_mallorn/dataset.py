@@ -337,6 +337,7 @@ class MallornDataset(Dataset):
         return sample
 
 
+        
     # def get_item_label(self, idx):
 
     #     # TODO: Need to adjust as right now the labels are string, this might cause a mess later down the line
@@ -424,6 +425,9 @@ class MallornDatasetwLabel(Dataset):
 
     def __exit__(self, exc_type, exc_value, traceback):
         del self.parquet
+
+    def get_labels(self):
+        return self.parquet['binary_class'].to_numpy()
 
     def __getitem__(self, idx):
         

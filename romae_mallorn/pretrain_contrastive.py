@@ -55,8 +55,128 @@ from romae_mallorn.dataset import MallornDataset
 from romae_mallorn.config import MallornConfig
 from romae_mallorn.utils import override_encoder_size
 
+from collections import defaultdict
+from torch.utils.data import Sampler, DataLoader
 
+class PositiveGuaranteedSampler(Sampler):
+    """
+    Each batch contains exactly `k_positive` examples from class +1,
+    and the remaining (batch_size - k_positive) slots are filled by
+    randomly sampling from classes -1 and 0 (unlabeled + negatives).
     
+    batch_size and k_positive are independent hyperparameters.
+    """
+
+    def __init__(self, labels, batch_size: int, k_positive: int):
+        """
+        Args:
+            labels:     array-like with values in {-1, 0, 1}
+            batch_size: total number of examples per batch
+            k_positive: exact number of positives (class 1) per batch
+        """
+        assert k_positive < batch_size, "k_positive must be less than batch_size"
+        
+        self.labels = np.array(labels)
+        self.batch_size = batch_size
+        self.k_positive = k_positive
+        self.k_rest = batch_size - k_positive
+
+        self.positive_indices = np.where(self.labels == 1)[0]
+        self.rest_indices = np.where(self.labels != 1)[0]  # -1 and 0 pooled together
+
+        assert len(self.positive_indices) > 0, "No positive examples found"
+        assert len(self.rest_indices) >= self.k_rest, "Not enough non-positive examples"
+
+        #self.n_batches = len(self.labels) // self.batch_size
+        # Epoch = one full pass over the rest pool
+        self.n_batches = len(self.rest_indices) // self.k_rest
+    
+    def __iter__(self):
+        rest_pool = np.random.permutation(self.rest_indices).tolist()
+        pos_pool  = np.random.permutation(self.positive_indices).tolist()
+        pos_ptr = rest_ptr = 0
+    
+        for _ in range(self.n_batches):
+            # Rest: sequential, no wraparound needed (pool is exactly consumed)
+            rest_batch = rest_pool[rest_ptr : rest_ptr + self.k_rest]
+            rest_ptr += self.k_rest
+    
+            # Positives: wraparound/oversample as before
+            pos_batch = []
+            for _ in range(self.k_positive):
+                if pos_ptr >= len(pos_pool):
+                    pos_pool = np.random.permutation(self.positive_indices).tolist()
+                    pos_ptr = 0
+                pos_batch.append(pos_pool[pos_ptr])
+                pos_ptr += 1
+    
+            batch = pos_batch + rest_batch
+            np.random.shuffle(batch)
+            yield batch
+
+
+    def __len__(self):
+        return self.n_batches
+
+
+class TrainerConfigSampler(TrainerConfig):
+
+    K_positive_batch: Optional[int] = Field(
+        None,
+        description="Number of positive examples guaranteed per minibatch"
+    )
+    
+    
+class TrainerSampler(Trainer):
+    
+    def __init__(self, config: TrainerConfig):
+        super().__init__(config)
+        
+
+    def get_dataloaders(self, train_dataset, test_dataset,
+                            train_collate_fn, eval_collate_fn):
+
+        if self.config.K_positive_batch is not None:   
+            print("OVERRIDING DATA LOADERS FROM TRAINER")
+            print(f"K positive examples {self.config.K_positive_batch}")
+            
+            sampler_train = PositiveGuaranteedSampler(
+                labels=train_dataset.get_labels(),   # array of {-1, 0, 1}
+                batch_size=self.config.batch_size,            
+                k_positive=self.config.K_positive_batch,             
+            )
+    
+            sampler_test = PositiveGuaranteedSampler(
+                labels=test_dataset.get_labels(),   # array of {-1, 0, 1}
+                batch_size=self.config.batch_size,            
+                k_positive=self.config.K_positive_batch,             
+            )
+    
+            train_dataloader = torch.utils.data.DataLoader(
+                train_dataset,
+                #batch_size=self.config.batch_size,
+                num_workers=self.config.num_dataset_workers,
+                pin_memory=True,
+                #shuffle=True,
+                batch_sampler = sampler_train,
+                collate_fn=train_collate_fn,
+                prefetch_factor=2,
+            )
+            
+            test_dataloader = torch.utils.data.DataLoader(
+                test_dataset,
+                #batch_size=self.config.batch_size,
+                num_workers=self.config.num_dataset_workers,
+                pin_memory=True,
+                batch_sampler = sampler_test, ## bit shady to have it in test as well but it ensures the loss is the same?!
+                collate_fn=eval_collate_fn,
+                prefetch_factor=2
+            )
+        else:
+            train_dataloader, test_dataloader = super().get_dataloaders(train_dataset, test_dataset,
+                            train_collate_fn, eval_collate_fn)
+            
+        return train_dataloader, test_dataloader
 
 def pretrain_contrastive(args):
     """
@@ -98,6 +218,7 @@ def pretrain_contrastive(args):
     if args.contrastive_mask_ratio is not None:
         print("Overridding configured mask_ratio_contrastive")
         contrastive_config.mask_ratio_contrastive = args.contrastive_mask_ratio
+
 
     if args.no_decode:
         contrastive_config.decode = False
@@ -150,6 +271,7 @@ def pretrain_contrastive(args):
     if args.batch_size is not None:
         print("Overriding configured batch size")
         contrastive_config.pretrain_batch_size = args.batch_size
+        contrastive_config.eval_batch_size = args.batch_size
     if args.epochs is not None:
         print("Overridding configured number of epochs")
         contrastive_config.pretrain_epochs = args.epochs
@@ -171,9 +293,11 @@ def pretrain_contrastive(args):
         contrastive_config=contrastive_config,
         augmentation_fn=augmentation
     ) #.to(device)
+
     
 
-    trainer_config = TrainerConfig(
+    #if args.K_pos_batch is not None:    
+    trainer_config = TrainerConfigSampler(
         warmup_steps=contrastive_config.pretrain_warmup_steps,
         checkpoint_dir=args.model_name+"_checkpoint_",
         epochs=contrastive_config.pretrain_epochs,
@@ -186,8 +310,25 @@ def pretrain_contrastive(args):
         entity_name='contardog-university-of-nova-gorica',
         gradient_clip=contrastive_config.pretrain_grad_clip,
         lr_scaling=True,
+        K_positive_batch = args.K_pos_batch
         #max_checkpoints = 20,
     )
+    # else:         
+    #     trainer_config = TrainerConfig(
+    #         warmup_steps=contrastive_config.pretrain_warmup_steps,
+    #         checkpoint_dir=args.model_name+"_checkpoint_",
+    #         epochs=contrastive_config.pretrain_epochs,
+    #         base_lr=contrastive_config.pretrain_lr,
+    #         eval_every=contrastive_config.pretrain_eval_every,
+    #         save_every=contrastive_config.pretrain_save_every,
+    #         optimizer_args=contrastive_config.pretrain_optimargs,
+    #         batch_size= contrastive_config.pretrain_batch_size,
+    #         project_name= contrastive_config.project_name + args.model_name,
+    #         entity_name='contardog-university-of-nova-gorica',
+    #         gradient_clip=contrastive_config.pretrain_grad_clip,
+    #         lr_scaling=True
+    #         #max_checkpoints = 20,
+    #     )
     
     if (args.vega):
         print("Original trainer config num_dataset_workerS")
@@ -198,7 +339,7 @@ def pretrain_contrastive(args):
         
     print("Start pretrain")
     
-    trainer = Trainer(trainer_config)
+    trainer = TrainerSampler(trainer_config)
     with (
         MallornDatasetwLabel(args.test_parquet, mask_ratio=contrastive_config.pretrain_mask_ratio) as test_dataset,
         MallornDatasetwLabel(args.train_parquet,                
