@@ -21,6 +21,11 @@ def run_pretrain_contrastive(args):
     from romae_mallorn import pretrain_contrastive
     pretrain_contrastive.pretrain_contrastive(args)
 
+    
+def run_env_pretrain_contrastive(args):
+    from romae_mallorn import env_contrastive
+    env_contrastive.env_pretrain_contrastive(args)
+ 
 
 def run_finetune(*_, **__):
     from romae_mallorn import finetune
@@ -75,6 +80,19 @@ if __name__ == '__main__':
     
     pretrain.set_defaults(func=run_pretrain)
 
+    ## Pretrain using .env settings
+    
+    env_pretrain_contrastive_parser = subparsers.add_parser(
+        "env_pretrain_contrastive",
+        help="Contrastive pretraining driven by .env file — no argparse overrides"
+    )
+    env_pretrain_contrastive_parser.add_argument(
+        "--env_file", type=str, default=None,
+        help="Path to .env file (defaults to .env in cwd if not set)"
+    )
+    env_pretrain_contrastive_parser.set_defaults(func=run_env_pretrain_contrastive)
+     
+    
     ## Pretrain contrastive subparser
 
     pretrain_contrastive = subparsers.add_parser("pretrain_contrastive")

@@ -196,7 +196,87 @@ def gen_mask_window(mask_ratio, pad_mask, single=False, window_ratio=0.5, window
     return mask
 
     
+def remove_weird_fluxerr(parq_,col_names_to_pad=['FLUXCAL', 'FLUXCALERR', 'MJD', 'BAND']):
+    # Get indices where FLUXCALERR != 1000000
+    parq_ = parq_.with_columns(
+        pl.col('FLUXCALERR')
+        .list.eval(pl.arg_where(pl.element() != 100000000))
+        .alias('_keep_indices')
+    )
+    
+    
+    # Use list.gather to filter each column natively
+    parq_ = parq_.with_columns([
+        pl.col(col).list.gather(pl.col('_keep_indices'))
+        for col in col_names_to_pad
+    ]).drop('_keep_indices')
+    return parq_
 
+
+
+
+def rescale_flux(parq_, g_band= "g", min_g_obs = 5):
+    
+    # This rescale the flux per lightcurve s.t. : flux_rescale <- flux / scalingfactor
+    # where scaling factor = 90th percentile flux in g-band if enough datapoints are available (>5), 
+    # Fallback: if g-band has <5 valid points, use all bands jointly
+
+    # parq_: polar DataFrame
+
+    def row_scale(fluxcal: list, band: list) -> dict:
+        flux = np.array(fluxcal, dtype=np.float32)
+        bands = np.array(band)
+
+        g_mask = bands == g_band
+        n_g = g_mask.sum()
+
+        if n_g >= min_g_obs:
+            ref_flux = np.abs(flux[g_mask])
+            scale_source = "g_band"
+        else:
+            ref_flux = np.abs(flux)
+            scale_source = "all_bands"
+
+        # 90th percentile of flux in either g or all-bands
+        scale = float(np.percentile(ref_flux, 90))
+        scale = max(scale, 1.0)  # avoid division by near-zero for 'faint' diff-flux...but I don't know if we want that? OR if it would happen?
+
+        return {"scale": scale, "scale_source": scale_source}
+
+    # Compute scale factor per row
+    scale_rows = [
+        row_scale(row["FLUXCAL"], row["BAND"])
+        for row in parq_.iter_rows(named=True) ## loop is a bit iffy if we have millions but for now fine i guess...
+    ]
+
+    scales     = [r["scale"] for r in scale_rows]
+    sources    = [r["scale_source"] for r in scale_rows]
+
+    parq_ = parq_.with_columns([
+        pl.Series("FLUXCAL_scale_factor", scales),
+        pl.Series("FLUXCAL_scale_source", sources),
+    ])
+
+    # Save original, then normalize both FLUXCAL and FLUXCALERR by the same scale
+    parq_ = parq_.with_columns([
+        pl.col("FLUXCAL").alias("FLUXCAL_unscaled"),
+        pl.col("FLUXCALERR").alias("FLUXCALERR_unscaled"),
+    ])
+
+    parq_ = parq_.with_columns([
+        pl.struct(["FLUXCAL", "FLUXCAL_scale_factor"]).map_elements(
+            lambda s: [f / s["FLUXCAL_scale_factor"] for f in s["FLUXCAL"]],
+            return_dtype=pl.List(pl.Float32)
+        ).alias("FLUXCAL"),
+
+        pl.struct(["FLUXCALERR", "FLUXCAL_scale_factor"]).map_elements(
+            lambda s: [e / s["FLUXCAL_scale_factor"] for e in s["FLUXCALERR"]],
+            return_dtype=pl.List(pl.Float32)
+        ).alias("FLUXCALERR"),
+    ])
+
+    return parq_
+    
 def padd_parquet(parqu_, col_names_to_pad=['FLUXCAL', 'FLUXCALERR', 'MJD', 'BAND']):
     ##  
     #parqu_ = pl.read_parquet('/scratch/gcontard/ELASTICC2/combined_train_parquets/train.parquet')
@@ -463,46 +543,37 @@ class MallornDatasetwLabel(Dataset):
         return sample
 
 
-
-class MallornDatasetwLabelTweak(Dataset):
+class MallornDatasetwLabelTrimMask(Dataset):
     """
     This assumes some naming in the parquet taken as input -- maybe change to something better when we also adjust for DP1?
     """
     
-
-    def __init__(self, parquet_file, 
-                 mask_ratio = 0.5, gaussian_noise: bool = False):
-        
+    
+    def __init__(self, parquet_file,
+                 mask_ratio=0.5, gaussian_noise: bool = False,
+                 obs_dropout_end_trim: float = 0.05,      # fraction of seq to trim from ends
+                 obs_dropout_edge_erosion: float = 0.05,  # max fraction to erode per gap edge
+                 gap_threshold_factor: float = 10.0,       # in MJD?
+                 random_dropout_ratio: float = 0.03,
+                 training = True
+                 ):
+        ...
+        self.obs_dropout_end_trim      = obs_dropout_end_trim
+        self.obs_dropout_edge_erosion  = obs_dropout_edge_erosion
+        self.gap_threshold_factor      = gap_threshold_factor
+        self.random_dropout_ratio  = random_dropout_ratio
+        self.training                  = training
         self.noise = gaussian_noise
         
         self.mask_ratio = mask_ratio
 
         #if isinstance(parquet_input, str):
-        self.parquet = pl.read_parquet(parquet_file)
-        # else:
-        #     self.parquet = parquet_file
-        
-        
+        self.parquet = pl.read_parquet(parquet_file)  
+        self.parquet = remove_weird_fluxerr(self.parquet) # this removes the weird fluxerr = 1,000,000
+        self.parquet = rescale_flux(self.parquet)
         self.parquet = padd_parquet(self.parquet)
         self.parquet = reformat_bands(self.parquet)
-    ## Hopefully we don't need that?
-    # def get_standardization_vals(self):
-    #     import tqdm
-    #     n_samples = self.file["data"].shape[0]
-    #     means = torch.zeros(6)
-    #     stds = torch.zeros(6)
-    #     for i in tqdm.tqdm(range(n_samples), total=n_samples):
-    #         data = self.file["data"][i]
-    #         mask = self.file["mask"][i]
-    #         for j in range(6):
-    #             means[j] += data[:, j][mask[:, j] > 0.5].mean() / n_samples
-    #             stds[j] += data[:, j][mask[:, j] > 0.5].std() / n_samples
-
-    #     return means, stds
-
-
-    
-    
+        
 
     def __len__(self):
         return len(self.parquet)
@@ -510,43 +581,235 @@ class MallornDatasetwLabelTweak(Dataset):
     def __enter__(self):
         return self
 
-    # def __exit__(self, exc_type, exc_value, traceback):
-    #     self.file.close()
+    def _observation_dropout(self, times_obs: torch.Tensor) -> torch.Tensor:
+        """
+        times_obs : (n_nonpad,) tensor of MJD times, already zeroed,
+                    in observation order (sorted).
+        Returns a boolean keep-mask of shape (n_nonpad,).
+    
+        Two operations only:
+          1. End trimming  — drop up to `end_trim_ratio` of points from
+                             start and end of the full sequence
+          2. Edge erosion  — drop up to `edge_erosion_ratio` of points
+                             immediately adjacent to detected gap boundaries
+            ADDED
+          3. Window drop -- Canceled:might be messy / remove too much info --- lets reevaluate later
+          4. Random drop
+        """
+        n = len(times_obs)
+        keep = torch.ones(n, dtype=torch.bool)
+    
+        # ----------------------------------------------------------------
+        # 1. End trimming
+        # ----------------------------------------------------------------
+        if self.obs_dropout_end_trim > 0.0:
+            max_trim = int(n * self.obs_dropout_end_trim)
+            if max_trim >= 1:
+                # randomly trim from start, end, or both
+                trim_start = np.random.randint(0, max_trim + 1)
+                trim_end   = np.random.randint(0, max_trim + 1)
+                if trim_start > 0:
+                    keep[:trim_start] = False
+                if trim_end > 0:
+                    keep[n - trim_end:] = False
+    
+        # ----------------------------------------------------------------
+        # 2. Gap edge erosion
+        #    Detect gaps as time differences above a threshold,
+        #    then randomly erode a few points on each side of each gap.
+        # ----------------------------------------------------------------
+        if self.obs_dropout_edge_erosion > 0.0 and n > 5:
+            dt = times_obs[1:] - times_obs[:-1]          # (n-1,)
+            # median_dt = dt.median()
+            # print("Median dt")
+            # print(median_dt)
+            # # a gap is a dt significantly larger than the local cadence
+            gap_threshold = self.gap_threshold_factor #median_dt * self.gap_threshold_factor
+            gap_indices = (dt > gap_threshold).nonzero(as_tuple=True)[0]
+            #print(gap_indices)
+            # gap_indices[k] = i means there's a gap between obs i and i+1
+    
+            max_erode = max(1, int(n * self.obs_dropout_edge_erosion))
+    
+            for gap_i in gap_indices:
+                gap_i = gap_i.item()
+                # right side of gap-before: indices [..., gap_i]
+                n_erode_left  = np.random.randint(0, max_erode + 1)
+                # left side of gap-after:  indices [gap_i+1, ...]
+                n_erode_right = np.random.randint(0, max_erode + 1)
+    
+                if n_erode_left > 0:
+                    start = max(0, gap_i - n_erode_left + 1)
+                    keep[start : gap_i + 1] = False
+                if n_erode_right > 0:
+                    end = min(n, gap_i + 1 + n_erode_right)
+                    keep[gap_i + 1 : end] = False
+
+        ## A random subsampling too
+        
+        n_random_drops = int(np.ceil(n * self.random_dropout_ratio))
+        if self.random_dropout_ratio > 0. and keep.sum() > n_random_drops:
+            available = list(np.where(keep)[0])
+            extra = np.random.choice(available, size=min(n_random_drops, len(available)), replace=False)
+            keep[extra] = False
+     
+        # Band dropout: randomly zero out an entire band for a fraction of examples?
+        
+        # Randomly select a contiguous sub-window of the light-curve
+                
+        # always keep at least 1 point : maybe we want to change that to have more        
+        if keep.sum() == 0:
+            # replace with a random number / number positions
+            
+            keep[np.random.choice(np.arange(len(keep)), size=np.random.randint(4,np.min(n,10)), replace=False)] = True
+    
+        return keep
 
     def __exit__(self, exc_type, exc_value, traceback):
         del self.parquet
 
+    def get_labels(self):
+        return self.parquet['binary_class'].to_numpy()
+
+    
+    
     def __getitem__(self, idx):
-        
-        # FLuxCal here should be the DIFF flux !!
-        data = torch.tensor(self.parquet["FLUXCAL_pad"].to_numpy()[idx]).flatten()
-        pad_mask = ~(torch.tensor(self.parquet["PADD_MASK"].to_numpy()[idx])).flatten()
-        # Adjust if we have alert and flags?
-        # alert_mask = (torch.tensor(self.file["mask_alert"][idx]) > 0.5).flatten()
-        # pad_mask[alert_mask] = True
-        times = torch.tensor(self.parquet["MJD_pad"].to_numpy()[idx].flatten())
-        times[pad_mask] = times[pad_mask] - torch.min(times[pad_mask]) #To avoid big numbers in times
-        
-        label =  self.parquet["binary_class"].to_numpy()[idx] # 
-        bands = torch.tensor(self.parquet["band_number"].to_numpy()[idx]) # this is padded
+        ## Noisyfying? 
+        # Flux jitter proportional to diff_fluxerr: add N(0, alpha * fluxcallerr) noise to each flux point, with alpha ~ [0.5, 1.5] ?
+        # Had some issues when we did this at some point so maybe best to avoid...
+       
+        data = torch.tensor(self.parquet["FLUXCAL_pad"][idx].to_numpy()).flatten()
+        pad_mask = ~(torch.tensor(self.parquet["PADD_MASK"][idx].to_numpy())).flatten()
+        times = torch.tensor(self.parquet["MJD_pad"][idx].to_numpy().flatten())
+        times[pad_mask] = times[pad_mask] - torch.min(times[pad_mask])
+    
+        label = self.parquet["binary_class"][idx]
+        bands = torch.tensor(self.parquet["band_number"][idx].to_numpy())
         positions = torch.stack([bands, times])
-        data_var = torch.tensor(self.parquet["FLUXCALERR_pad"].to_numpy()[idx]).flatten()
+        data_var = torch.tensor(self.parquet["FLUXCALERR_pad"][idx]).flatten()
         data = torch.stack([data, data_var])
-        n_nonpad = pad_mask.sum()
-        positions = nn.functional.pad(positions[:, pad_mask], (0, positions.shape[1]-n_nonpad)).float()
-        data = nn.functional.pad(data[:, pad_mask], (0, data.shape[1]-n_nonpad))[..., None, None].float().swapaxes(0, 1)
+    
+        n_nonpad = pad_mask.sum().item()
+    
+        # --- observation dropout applied here, before re-padding ---
+        # operates on the n_nonpad real observations only
+        times_obs = times[pad_mask]   # real observations only, already zeroed
+
+        if self.training and (self.obs_dropout_end_trim > 0 or self.obs_dropout_edge_erosion > 0 or self.random_dropout_ratio > 0):
+            keep = self._observation_dropout(times_obs)
+            n_nonpad = keep.sum().item()
+            positions = positions[:, pad_mask][:, keep]
+            data      = data[:, pad_mask][:, keep]
+        else:
+            positions = positions[:, pad_mask]
+            data      = data[:, pad_mask]
+    
+        # re-pad to original sequence length
+        seq_len = pad_mask.shape[0]
+        positions = nn.functional.pad(positions, (0, seq_len - n_nonpad)).float()
+        data = nn.functional.pad(data, (0, seq_len - n_nonpad))[..., None, None].float().swapaxes(0, 1)
+    
         pad_mask[:] = False
         pad_mask[n_nonpad:] = True
+    
         mask = gen_mask(self.mask_ratio, pad_mask[None, ...], single=True).squeeze()
+    
         if self.noise:
             data = data + torch.randn_like(data) * 0.02
-        sample = {
+    
+        return {
             "values": data,
             "positions": positions,
             "label": label,
             "mask": mask,
             "pad_mask": pad_mask
         }
-        return sample
+
+    
+
+# class MallornDatasetwLabelTweak(Dataset):
+#     """
+#     This assumes some naming in the parquet taken as input -- maybe change to something better when we also adjust for DP1?
+#     """
+    
+
+#     def __init__(self, parquet_file, 
+#                  mask_ratio = 0.5, gaussian_noise: bool = False):
+        
+#         self.noise = gaussian_noise
+        
+#         self.mask_ratio = mask_ratio
+
+#         #if isinstance(parquet_input, str):
+#         self.parquet = pl.read_parquet(parquet_file)
+#         # else:
+#         #     self.parquet = parquet_file
+        
+        
+#         self.parquet = padd_parquet(self.parquet)
+#         self.parquet = reformat_bands(self.parquet)
+#     ## Hopefully we don't need that?
+#     # def get_standardization_vals(self):
+#     #     import tqdm
+#     #     n_samples = self.file["data"].shape[0]
+#     #     means = torch.zeros(6)
+#     #     stds = torch.zeros(6)
+#     #     for i in tqdm.tqdm(range(n_samples), total=n_samples):
+#     #         data = self.file["data"][i]
+#     #         mask = self.file["mask"][i]
+#     #         for j in range(6):
+#     #             means[j] += data[:, j][mask[:, j] > 0.5].mean() / n_samples
+#     #             stds[j] += data[:, j][mask[:, j] > 0.5].std() / n_samples
+
+#     #     return means, stds
+
+
+    
+    
+
+#     def __len__(self):
+#         return len(self.parquet)
+
+#     def __enter__(self):
+#         return self
+
+#     # def __exit__(self, exc_type, exc_value, traceback):
+#     #     self.file.close()
+
+#     def __exit__(self, exc_type, exc_value, traceback):
+#         del self.parquet
+
+#     def __getitem__(self, idx):
+        
+#         # FLuxCal here should be the DIFF flux !!
+#         data = torch.tensor(self.parquet["FLUXCAL_pad"].to_numpy()[idx]).flatten()
+#         pad_mask = ~(torch.tensor(self.parquet["PADD_MASK"].to_numpy()[idx])).flatten()
+#         # Adjust if we have alert and flags?
+#         # alert_mask = (torch.tensor(self.file["mask_alert"][idx]) > 0.5).flatten()
+#         # pad_mask[alert_mask] = True
+#         times = torch.tensor(self.parquet["MJD_pad"].to_numpy()[idx].flatten())
+#         times[pad_mask] = times[pad_mask] - torch.min(times[pad_mask]) #To avoid big numbers in times
+        
+#         label =  self.parquet["binary_class"].to_numpy()[idx] # 
+#         bands = torch.tensor(self.parquet["band_number"].to_numpy()[idx]) # this is padded
+#         positions = torch.stack([bands, times])
+#         data_var = torch.tensor(self.parquet["FLUXCALERR_pad"].to_numpy()[idx]).flatten()
+#         data = torch.stack([data, data_var])
+#         n_nonpad = pad_mask.sum()
+#         positions = nn.functional.pad(positions[:, pad_mask], (0, positions.shape[1]-n_nonpad)).float()
+#         data = nn.functional.pad(data[:, pad_mask], (0, data.shape[1]-n_nonpad))[..., None, None].float().swapaxes(0, 1)
+#         pad_mask[:] = False
+#         pad_mask[n_nonpad:] = True
+#         mask = gen_mask(self.mask_ratio, pad_mask[None, ...], single=True).squeeze()
+#         if self.noise:
+#             data = data + torch.randn_like(data) * 0.02
+#         sample = {
+#             "values": data,
+#             "positions": positions,
+#             "label": label,
+#             "mask": mask,
+#             "pad_mask": pad_mask
+#         }
+#         return sample
 
 

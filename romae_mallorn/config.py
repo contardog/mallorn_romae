@@ -67,7 +67,7 @@ class MallornConfigContrastive(BaseSettings):
     """Configuration for contrastive learning"""
     temperature: float = 0.15
     projection_dim: int = 32
-    projection_hidden_dim: int = projection_dim ## THIS WAS DUMB, projection_hidden_dim is always 32 now. Duh. Fix after next batch of exp.
+    projection_hidden_dim: int = 32 ## This is not used with the new onelayer projection head
     cls_contrastive_dim: Optional[int] = None  # Split CLS token if set
     aug_contrast_weight: float = 1.0
     class_contrast_weight: float = 1.0

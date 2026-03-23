@@ -27,6 +27,12 @@ def override_encoder_size(size: str):
                     "nhead": 3,
                     "depth": 8 #Use to be 2
                 }
+            case "verytiny-6":
+                return {
+                    "d_model": 60,
+                    "nhead": 3,
+                    "depth": 6 #Use to be 2
+                }
             case "tiny-midshallow8":
                 return {
                     "d_model": 180,
