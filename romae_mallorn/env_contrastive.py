@@ -113,6 +113,18 @@ def env_pretrain_contrastive(args):
     print("UPDATE CONFIG< SWITCH MSE FOR SMOOTH L1")
     model.set_loss_fn(nn.HuberLoss(reduction='none', delta=0.5)) # delta: need to check the actual flux distrib now that we're rescaling?
 
+    
+    log_dir = config.model_name  # or however you read it
+    print(f"Log dir is:{log_dir}")
+    #project_name_wandb = f"Mallorn_{os.path.basename(log_dir)}"
+    
+    project_name_wandb = f"Mallorn_{os.path.basename(config.train_parquet)}"  
+    # e.g. "Mallorn_ELAsTiCC2_150pos_3000neg"
+    print(f"Project name is {project_name_wandb}")
+
+    run_name = f"{config.model_size}_recon{config.recon_weight}_supcon{config.class_contrast_weight}_temp{config.temperature}"
+    print(f"run name is {run_name}")
+    
     # --- Trainer ---
     trainer_config = TrainerConfigSampler(
         warmup_steps=config.pretrain_warmup_steps,
@@ -123,8 +135,9 @@ def env_pretrain_contrastive(args):
         save_every=config.pretrain_save_every,
         optimizer_args=config.pretrain_optimargs,
         batch_size=config.pretrain_batch_size,
-        project_name=config.project_name + config.model_name,
+        project_name=config.project_name + project_name_wandb,
         entity_name=config.entity_name,
+        run_name=run_name,
         gradient_clip=config.pretrain_grad_clip,
         lr_scaling=True,
         K_positive_batch=config.K_positive_batch,

@@ -77,5 +77,5 @@ class MallornConfigContrastiveEnv(BaseSettings):
     # --- Misc ---
     gaussian_noise: bool = Field(False)
     vega: bool = Field(False, description="Set True on cluster to use sched_getaffinity for worker count")
-    project_name: str = Field("Mallorn_contrastive_")
+    project_name: str = Field("contrastive_")
     entity_name: str = Field("contardog-university-of-nova-gorica")
