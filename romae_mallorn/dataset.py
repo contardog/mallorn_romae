@@ -215,76 +215,134 @@ def remove_weird_fluxerr(parq_,col_names_to_pad=['FLUXCAL', 'FLUXCALERR', 'MJD',
 
 
 
-def rescale_flux(parq_, g_band= "g", min_g_obs = 5):
+# def rescale_flux(parq_, g_band= "g", min_g_obs = 5):
     
-    # This rescale the flux per lightcurve s.t. : flux_rescale <- flux / scalingfactor
-    # where scaling factor = 90th percentile flux in g-band if enough datapoints are available (>5), 
-    # Fallback: if g-band has <5 valid points, use all bands jointly
+#     # This rescale the flux per lightcurve s.t. : flux_rescale <- flux / scalingfactor
+#     # where scaling factor = 90th percentile flux in g-band if enough datapoints are available (>5), 
+#     # Fallback: if g-band has <5 valid points, use all bands jointly
 
-    # parq_: polar DataFrame
+#     # parq_: polar DataFrame
 
-    def row_scale(fluxcal: list, band: list) -> dict:
-        flux = np.array(fluxcal, dtype=np.float32)
-        bands = np.array(band)
+#     def row_scale(fluxcal: list, band: list) -> dict:
+#         flux = np.array(fluxcal, dtype=np.float32)
+#         bands = np.array(band)
 
-        g_mask = bands == g_band
-        n_g = g_mask.sum()
+#         g_mask = bands == g_band
+#         n_g = g_mask.sum()
 
-        if n_g >= min_g_obs:
-            ref_flux = np.abs(flux[g_mask])
-            scale_source = "g_band"
-        else:
-            ref_flux = np.abs(flux)
-            scale_source = "all_bands"
+#         if n_g >= min_g_obs:
+#             ref_flux = np.abs(flux[g_mask])
+#             scale_source = "g_band"
+#         else:
+#             ref_flux = np.abs(flux)
+#             scale_source = "all_bands"
 
-        # 90th percentile of flux in either g or all-bands
-        scale = float(np.percentile(ref_flux, 90))
-        scale = max(scale, 1.0)  # avoid division by near-zero for 'faint' diff-flux...but I don't know if we want that? OR if it would happen?
+#         # 90th percentile of flux in either g or all-bands
+#         scale = float(np.percentile(ref_flux, 90))
+#         scale = max(scale, 1.0)  # avoid division by near-zero for 'faint' diff-flux...but I don't know if we want that? OR if it would happen?
 
-        return {"scale": scale, "scale_source": scale_source}
+#         return {"scale": scale, "scale_source": scale_source}
 
-    # Compute scale factor per row
-    scale_rows = [
-        row_scale(row["FLUXCAL"], row["BAND"])
-        for row in parq_.iter_rows(named=True) ## loop is a bit iffy if we have millions but for now fine i guess...
-    ]
+#     # Compute scale factor per row
+#     scale_rows = [
+#         row_scale(row["FLUXCAL"], row["BAND"])
+#         for row in parq_.iter_rows(named=True) ## loop is a bit iffy if we have millions but for now fine i guess...
+#     ]
 
-    scales     = [r["scale"] for r in scale_rows]
-    sources    = [r["scale_source"] for r in scale_rows]
+#     scales     = [r["scale"] for r in scale_rows]
+#     sources    = [r["scale_source"] for r in scale_rows]
 
-    parq_ = parq_.with_columns([
-        pl.Series("FLUXCAL_scale_factor", scales),
-        pl.Series("FLUXCAL_scale_source", sources),
-    ])
+#     parq_ = parq_.with_columns([
+#         pl.Series("FLUXCAL_scale_factor", scales),
+#         pl.Series("FLUXCAL_scale_source", sources),
+#     ])
 
-    # Save original, then normalize both FLUXCAL and FLUXCALERR by the same scale
+#     # Save original, then normalize both FLUXCAL and FLUXCALERR by the same scale
+#     parq_ = parq_.with_columns([
+#         pl.col("FLUXCAL").alias("FLUXCAL_unscaled"),
+#         pl.col("FLUXCALERR").alias("FLUXCALERR_unscaled"),
+#     ])
+
+#     # parq_ = parq_.with_columns([
+#     #     pl.struct(["FLUXCAL", "FLUXCAL_scale_factor"]).map_elements(
+#     #         lambda s: [f / s["FLUXCAL_scale_factor"] for f in s["FLUXCAL"]],
+#     #         return_dtype=pl.List(pl.Float32)
+#     #     ).alias("FLUXCAL"),
+
+#     #     pl.struct(["FLUXCALERR", "FLUXCAL_scale_factor"]).map_elements(
+#     #         lambda s: [e / s["FLUXCAL_scale_factor"] for e in s["FLUXCALERR"]],
+#     #         return_dtype=pl.List(pl.Float32)
+#     #     ).alias("FLUXCALERR"),
+#     # ])
+#     parq_ = parq_.with_columns([
+#             pl.struct(["FLUXCAL", "FLUXCAL_scale_factor"]).map_elements(
+#                 lambda s: np.array(s["FLUXCAL"], dtype=np.float32) / np.float32(s["FLUXCAL_scale_factor"]),
+#                 return_dtype=pl.List(pl.Float32)
+#             ).alias("FLUXCAL"),
+        
+#             pl.struct(["FLUXCALERR", "FLUXCAL_scale_factor"]).map_elements(
+#                 lambda s: np.array(s["FLUXCALERR"], dtype=np.float32) / np.float32(s["FLUXCAL_scale_factor"]),
+#                 return_dtype=pl.List(pl.Float32)
+#             ).alias("FLUXCALERR"),
+#         ])
+
+#     return parq_
+
+def rescale_flux(parq_, g_band="g", min_g_obs=5):
+
+    # Compute per-row scale factor using native polars
+    # g-band 90th percentile where enough g obs exist, else all-band 90th percentile
     parq_ = parq_.with_columns([
         pl.col("FLUXCAL").alias("FLUXCAL_unscaled"),
         pl.col("FLUXCALERR").alias("FLUXCALERR_unscaled"),
     ])
 
-    # parq_ = parq_.with_columns([
-    #     pl.struct(["FLUXCAL", "FLUXCAL_scale_factor"]).map_elements(
-    #         lambda s: [f / s["FLUXCAL_scale_factor"] for f in s["FLUXCAL"]],
-    #         return_dtype=pl.List(pl.Float32)
-    #     ).alias("FLUXCAL"),
-
-    #     pl.struct(["FLUXCALERR", "FLUXCAL_scale_factor"]).map_elements(
-    #         lambda s: [e / s["FLUXCAL_scale_factor"] for e in s["FLUXCALERR"]],
-    #         return_dtype=pl.List(pl.Float32)
-    #     ).alias("FLUXCALERR"),
-    # ])
+    # Count g-band observations per row
     parq_ = parq_.with_columns([
-            pl.struct(["FLUXCAL", "FLUXCAL_scale_factor"]).map_elements(
-                lambda s: np.array(s["FLUXCAL"], dtype=np.float32) / np.float32(s["FLUXCAL_scale_factor"]),
-                return_dtype=pl.List(pl.Float32)
-            ).alias("FLUXCAL"),
-        
-            pl.struct(["FLUXCALERR", "FLUXCAL_scale_factor"]).map_elements(
-                lambda s: np.array(s["FLUXCALERR"], dtype=np.float32) / np.float32(s["FLUXCAL_scale_factor"]),
-                return_dtype=pl.List(pl.Float32)
-            ).alias("FLUXCALERR"),
-        ])
+        pl.col("BAND").list.eval(
+            pl.element().filter(pl.element() == g_band)
+        ).list.len().alias("_n_g_obs")
+    ])
+
+    # Compute scale: 90th percentile of |FLUXCAL| in g-band if enough, else all bands
+    # We need map_elements for the conditional logic, but return a scalar float — no list
+    def compute_scale(row) -> float:
+        flux = np.array(row["FLUXCAL"], dtype=np.float32)
+        bands = np.array(row["BAND"])
+        n_g = (bands == g_band).sum()
+        if n_g >= min_g_obs:
+            ref = np.abs(flux[bands == g_band])
+        else:
+            ref = np.abs(flux)
+        scale = float(np.percentile(ref, 90))
+        return max(scale, 1.0)
+
+    parq_ = parq_.with_columns([
+        pl.struct(["FLUXCAL", "BAND"]).map_elements(
+            compute_scale,
+            return_dtype=pl.Float32   # scalar, not a list — no ambiguity
+        ).alias("FLUXCAL_scale_factor")
+    ])
+
+    # Now divide using native polars list arithmetic — no map_elements needed
+    parq_ = parq_.with_columns([
+        pl.col("FLUXCAL").list.eval(
+            pl.element().cast(pl.Float32)
+        ).alias("FLUXCAL"),
+        pl.col("FLUXCALERR").list.eval(
+            pl.element().cast(pl.Float32)
+        ).alias("FLUXCALERR"),
+    ])
+
+    parq_ = parq_.with_columns([
+        (pl.col("FLUXCAL").list.eval(pl.element()) / pl.col("FLUXCAL_scale_factor"))
+        .cast(pl.List(pl.Float32)).alias("FLUXCAL"),
+
+        (pl.col("FLUXCALERR").list.eval(pl.element()) / pl.col("FLUXCAL_scale_factor"))
+        .cast(pl.List(pl.Float32)).alias("FLUXCALERR"),
+    ])
+
+    parq_ = parq_.drop("_n_g_obs")
 
     return parq_
     
@@ -335,11 +393,33 @@ def map_bands(band_letters):
     }
     return [band_dic[l] for l in band_letters]
 
-def reformat_bands(parqu_):
-    ## This reformats the bands from letters to numbers
-    ## Force return_dtype list of int32 instead of 64? 
-    parqu_ = parqu_.with_columns(pl.col("BAND_pad").map_elements(map_bands, return_dtype=pl.List(pl.Int32)).alias("band_number"))
+# def reformat_bands(parqu_):
+#     ## This reformats the bands from letters to numbers
+#     ## Force return_dtype list of int32 instead of 64? 
+#     parqu_ = parqu_.with_columns(pl.col("BAND_pad").map_elements(map_bands, return_dtype=pl.List(pl.Int32)).alias("band_number"))
         
+#     return parqu_
+
+def reformat_bands(parqu_):
+    band_dic = {
+        'u': 0,
+        'g': 1,
+        'r': 2,
+        'i': 3,
+        'z': 4,
+        'Y': 5,
+        'y': 5,
+        '0': -1,
+    }
+    parqu_ = parqu_.with_columns(
+        pl.col("BAND_pad").list.eval(
+            pl.element().replace(
+                old=list(band_dic.keys()),
+                new=list(band_dic.values()),
+                default=-1,
+            ).cast(pl.Int32)
+        ).alias("band_number")
+    )
     return parqu_
     
 class MallornDataset(Dataset):
