@@ -325,21 +325,40 @@ def rescale_flux(parq_, g_band="g", min_g_obs=5):
     ])
 
     # Now divide using native polars list arithmetic — no map_elements needed
+    # parq_ = parq_.with_columns([
+    #     pl.col("FLUXCAL").list.eval(
+    #         pl.element().cast(pl.Float32)
+    #     ).alias("FLUXCAL"),
+    #     pl.col("FLUXCALERR").list.eval(
+    #         pl.element().cast(pl.Float32)
+    #     ).alias("FLUXCALERR"),
+    # ])
+
+    # parq_ = parq_.with_columns([
+    #     (pl.col("FLUXCAL").list.eval(pl.element()) / pl.col("FLUXCAL_scale_factor"))
+    #     .cast(pl.List(pl.Float32)).alias("FLUXCAL"),
+
+    #     (pl.col("FLUXCALERR").list.eval(pl.element()) / pl.col("FLUXCAL_scale_factor"))
+    #     .cast(pl.List(pl.Float32)).alias("FLUXCALERR"),
+    # ])
+    parq_ = parq_.with_columns(
+        pl.col("FLUXCAL_scale_factor").cast(pl.Float32)
+    )
+    
     parq_ = parq_.with_columns([
-        pl.col("FLUXCAL").list.eval(
-            pl.element().cast(pl.Float32)
+        pl.struct(["FLUXCAL", "FLUXCAL_scale_factor"]).map_elements(
+            lambda s: pl.Series(
+                np.array(s["FLUXCAL"], dtype=np.float32) / np.float32(s["FLUXCAL_scale_factor"])
+            ),
+            return_dtype=pl.List(pl.Float32)
         ).alias("FLUXCAL"),
-        pl.col("FLUXCALERR").list.eval(
-            pl.element().cast(pl.Float32)
+    
+        pl.struct(["FLUXCALERR", "FLUXCAL_scale_factor"]).map_elements(
+            lambda s: pl.Series(
+                np.array(s["FLUXCALERR"], dtype=np.float32) / np.float32(s["FLUXCAL_scale_factor"])
+            ),
+            return_dtype=pl.List(pl.Float32)
         ).alias("FLUXCALERR"),
-    ])
-
-    parq_ = parq_.with_columns([
-        (pl.col("FLUXCAL").list.eval(pl.element()) / pl.col("FLUXCAL_scale_factor"))
-        .cast(pl.List(pl.Float32)).alias("FLUXCAL"),
-
-        (pl.col("FLUXCALERR").list.eval(pl.element()) / pl.col("FLUXCAL_scale_factor"))
-        .cast(pl.List(pl.Float32)).alias("FLUXCALERR"),
     ])
 
     parq_ = parq_.drop("_n_g_obs")
