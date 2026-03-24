@@ -320,7 +320,7 @@ def rescale_flux(parq_, g_band="g", min_g_obs=5):
     parq_ = parq_.with_columns([
         pl.struct(["FLUXCAL", "BAND"]).map_elements(
             compute_scale,
-            return_dtype=pl.Float32   # scalar, not a list — no ambiguity
+            return_dtype=pl.Float64   # scalar, not a list — no ambiguity
         ).alias("FLUXCAL_scale_factor")
     ])
 
@@ -350,14 +350,14 @@ def rescale_flux(parq_, g_band="g", min_g_obs=5):
             lambda s: pl.Series(
                 np.array(s["FLUXCAL"], dtype=np.float32) / np.float32(s["FLUXCAL_scale_factor"])
             ),
-            return_dtype=pl.List(pl.Float32)
+            #return_dtype=pl.List(pl.Float32)
         ).alias("FLUXCAL"),
     
         pl.struct(["FLUXCALERR", "FLUXCAL_scale_factor"]).map_elements(
             lambda s: pl.Series(
                 np.array(s["FLUXCALERR"], dtype=np.float32) / np.float32(s["FLUXCAL_scale_factor"])
             ),
-            return_dtype=pl.List(pl.Float32)
+           # return_dtype=pl.List(pl.Float32)
         ).alias("FLUXCALERR"),
     ])
 
