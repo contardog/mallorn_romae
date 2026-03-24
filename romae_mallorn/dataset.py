@@ -263,17 +263,28 @@ def rescale_flux(parq_, g_band= "g", min_g_obs = 5):
         pl.col("FLUXCALERR").alias("FLUXCALERR_unscaled"),
     ])
 
-    parq_ = parq_.with_columns([
-        pl.struct(["FLUXCAL", "FLUXCAL_scale_factor"]).map_elements(
-            lambda s: [f / s["FLUXCAL_scale_factor"] for f in s["FLUXCAL"]],
-            return_dtype=pl.List(pl.Float32)
-        ).alias("FLUXCAL"),
+    # parq_ = parq_.with_columns([
+    #     pl.struct(["FLUXCAL", "FLUXCAL_scale_factor"]).map_elements(
+    #         lambda s: [f / s["FLUXCAL_scale_factor"] for f in s["FLUXCAL"]],
+    #         return_dtype=pl.List(pl.Float32)
+    #     ).alias("FLUXCAL"),
 
-        pl.struct(["FLUXCALERR", "FLUXCAL_scale_factor"]).map_elements(
-            lambda s: [e / s["FLUXCAL_scale_factor"] for e in s["FLUXCALERR"]],
-            return_dtype=pl.List(pl.Float32)
-        ).alias("FLUXCALERR"),
-    ])
+    #     pl.struct(["FLUXCALERR", "FLUXCAL_scale_factor"]).map_elements(
+    #         lambda s: [e / s["FLUXCAL_scale_factor"] for e in s["FLUXCALERR"]],
+    #         return_dtype=pl.List(pl.Float32)
+    #     ).alias("FLUXCALERR"),
+    # ])
+    parq_ = parq_.with_columns([
+            pl.struct(["FLUXCAL", "FLUXCAL_scale_factor"]).map_elements(
+                lambda s: np.array(s["FLUXCAL"], dtype=np.float32) / np.float32(s["FLUXCAL_scale_factor"]),
+                return_dtype=pl.List(pl.Float32)
+            ).alias("FLUXCAL"),
+        
+            pl.struct(["FLUXCALERR", "FLUXCAL_scale_factor"]).map_elements(
+                lambda s: np.array(s["FLUXCALERR"], dtype=np.float32) / np.float32(s["FLUXCAL_scale_factor"]),
+                return_dtype=pl.List(pl.Float32)
+            ).alias("FLUXCALERR"),
+        ])
 
     return parq_
     
@@ -327,7 +338,7 @@ def map_bands(band_letters):
 def reformat_bands(parqu_):
     ## This reformats the bands from letters to numbers
     ## Force return_dtype list of int32 instead of 64? 
-    parqu_ = parqu_.with_columns(pl.col("BAND_pad").map_elements(map_bands, return_dtype=list[int]).alias("band_number"))
+    parqu_ = parqu_.with_columns(pl.col("BAND_pad").map_elements(map_bands, return_dtype=pl.List(pl.Int32)).alias("band_number"))
         
     return parqu_
     
