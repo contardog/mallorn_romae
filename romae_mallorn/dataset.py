@@ -314,8 +314,8 @@ def rescale_flux(parq_, g_band="g", min_g_obs=5):
             ref = np.abs(flux[bands == g_band])
         else:
             ref = np.abs(flux)
-        scale = float(np.percentile(ref, 90))
-        return max(scale, 1.0)
+        scale = np.float32(np.percentile(ref, 90))  # cast to float32 here
+        return float(max(scale, np.float32(1.0)))
 
     parq_ = parq_.with_columns([
         pl.struct(["FLUXCAL", "BAND"]).map_elements(
@@ -431,12 +431,12 @@ def reformat_bands(parqu_):
         '0': -1,
     }
     parqu_ = parqu_.with_columns(
-        pl.col("BAND_pad").list.eval(
-            pl.element().replace(
-                old=list(band_dic.keys()),
-                new=list(band_dic.values()),
-                default=-1,
-            ).cast(pl.Int32)
+        pl.col("BAND_pad").map_elements(
+            lambda bands: pl.Series(
+                [band_dic.get(b, -1) for b in bands], 
+                dtype=pl.Int32
+            ),
+            return_dtype=pl.List(pl.Int32)
         ).alias("band_number")
     )
     return parqu_
