@@ -320,7 +320,7 @@ def rescale_flux(parq_, g_band="g", min_g_obs=5):
     parq_ = parq_.with_columns([
         pl.struct(["FLUXCAL", "BAND"]).map_elements(
             compute_scale,
-            return_dtype=pl.Float64   # scalar, not a list — no ambiguity
+            return_dtype=pl.Float64   # let polars have it's damn Float64
         ).alias("FLUXCAL_scale_factor")
     ])
 
