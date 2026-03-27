@@ -1,13 +1,10 @@
 from romae.utils import get_encoder_size
 
-from romae_mallorn.romae_contrastive import RoMAEPreTrainingContrastive, RandomMasking
-from romae_mallorn.dataset import MallornDatasetwLabelTrimMask
-from romae_mallorn.utils import override_encoder_size
-from romae_mallorn.env_config import MallornConfigContrastiveEnv
+# from romae_mallorn.romae_contrastive import RoMAEPreTrainingContrastive, RandomMasking
+# from romae_mallorn.dataset import MallornDatasetwLabelTrimMask
+# from romae_mallorn.env_config import MallornConfigContrastiveEnv
 
-
-
-from romae_mallorn.samplers import PositiveGuaranteedSampler
+# from romae_mallorn.samplers import PositiveGuaranteedSampler
 
 import json
 
@@ -21,9 +18,9 @@ def load_from_checkpoint_contrastive(checkpoint_dir, model_cls, model_config, co
     ----------
     checkpoint_dir : str
     model_cls
-        The actual uninitialized class of the model being loaded
+        Uninitialized class of the model being loaded
     model_config
-        Uninitialized configuration class of the model being loaded
+        configuration class of the model being loaded
 
     Returns
     -------
