@@ -1,5 +1,50 @@
 from romae.utils import get_encoder_size
 
+from romae_mallorn.romae_contrastive import RoMAEPreTrainingContrastive, RandomMasking
+from romae_mallorn.dataset import MallornDatasetwLabelTrimMask
+from romae_mallorn.utils import override_encoder_size
+from romae_mallorn.env_config import MallornConfigContrastiveEnv
+
+
+
+from romae_mallorn.samplers import PositiveGuaranteedSampler
+
+import json
+
+from pathlib import Path
+
+def load_from_checkpoint_contrastive(checkpoint_dir, model_cls, model_config, contrastive_config):
+    """
+    Load a model from a checkpoint.
+
+    Parameters
+    ----------
+    checkpoint_dir : str
+    model_cls
+        The actual uninitialized class of the model being loaded
+    model_config
+        Uninitialized configuration class of the model being loaded
+
+    Returns
+    -------
+    model
+        The provided model_cls loaded with the weights and
+        configuration present in the checkpoint directory.
+    """
+    checkpoint_dir = Path(checkpoint_dir)
+    # Load model configuration
+    with open(checkpoint_dir/"model_config.json", "r") as f:
+        config_json = json.load(f)
+    print(config_json)
+    config = model_config(**config_json)
+
+    # Initialize the model class using the loaded configuration
+    model = model_cls(config, contrastive_config)
+    # Load the model weights from the checkpoint
+    model.load_weights(checkpoint_dir)
+    return model
+
+
 def override_encoder_size(size: str):
     """Get the parameters of a specific RoMAE model encoder size.
     """
