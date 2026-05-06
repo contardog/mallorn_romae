@@ -64,8 +64,8 @@ def env_pretrain_contrastive(args):
 
     # --- Model architecture ---
     encoder_args = override_encoder_size(config.model_size)
-    encoder_args["drop_path_rate"]=0.15
-    encoder_args["hidden_drop_rate"]=0.1
+    encoder_args["drop_path_rate"]=0.25
+    encoder_args["hidden_drop_rate"]=0.15
     encoder_args["pos_drop_rate"]=0.1
     encoder_args["attn_drop_rate"]=0.1
     encoder_args["attn_proj_drop_rate"]=0.1

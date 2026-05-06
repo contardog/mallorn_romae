@@ -768,10 +768,10 @@ class MallornDatasetwLabelTrimMask(Dataset):
         # Randomly select a contiguous sub-window of the light-curve
                 
         # always keep at least 1 point : maybe we want to change that to have more        
-        if keep.sum() == 0:
+        if keep.sum() < 5:
             # replace with a random number / number positions
             
-            keep[np.random.choice(np.arange(len(keep)), size=np.random.randint(4,np.min(n,10)), replace=False)] = True
+            keep[np.random.choice(np.arange(len(keep)), size=np.random.randint(np.min(n,5),np.min(n,10)), replace=False)] = True
     
         return keep
 
