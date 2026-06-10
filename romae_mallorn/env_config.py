@@ -8,17 +8,10 @@ torch.backends.cuda.matmul.allow_tf32 = True
 
 class MallornConfigContrastiveEnv(BaseSettings):
     """
-    Drop-in replacement for MallornConfigContrastive + argparse overrides.
-    Everything that was previously a CLI arg is now a field here,
-    readable from a .env file or inline env vars.
 
     Usage:
-        cp my_experiment.env .env && python3 -m romae_mallorn env_pretrain_contrastive
-        or
         python3 -m romae_mallorn env_pretrain_contrastive --env_file yourenv.env
 
-        # or inline:
-        MALLORN_TEMPERATURE=0.3 python3 -m romae_mallorn env_pretrain_contrastive
     """
     model_config = SettingsConfigDict(
         env_prefix='mallorn_',
@@ -49,7 +42,7 @@ class MallornConfigContrastiveEnv(BaseSettings):
 
     # --- Contrastive head ---
     temperature: float = Field(0.15)
-    projection_dim: Optional[int] = Field(None) ## In the new SupCon version this will not be used (rely on cls_contrastive_dim) because no projection head
+    projection_head: Optional[bool] = Field(False)
     projection_hidden_dim: Optional[int] = Field(None)  ## This is not used with the new onelayer projection head
     cls_contrastive_dim: Optional[int] = Field(None)
     aug_contrast_weight: float = Field(0.0) ## By default we don't do that

@@ -55,7 +55,7 @@ class OGProjectionHead(nn.Module):
         self.mlp1 = nn.Linear(input_dim, hidden_dim)
         
         self.mlp2 = nn.Sequential(
-              nn.BatchNorm1d(hidden_dim),
+              nn.BatchNorm1d(hidden_dim), #might be useless?
               nn.ReLU(inplace=True),
               nn.Linear(hidden_dim, output_dim)
             )
@@ -191,6 +191,7 @@ class ContrastiveLoss(nn.Module):
             #      for anything — they still appear in the denominator as negatives)
 
             ## This could be questionable? Let'see in practice, we could also drop the unsupervised from the denominator entirely
+            ## Note: that's what i ended up doing
                         
                  
             pos_mask = (labels.unsqueeze(0) == labels.unsqueeze(1)).float()  # (N, N)
@@ -282,7 +283,7 @@ class ContrastiveLoss(nn.Module):
             has_positive = has_positive & (labels != -1)
 
         if not has_positive.any():
-            # Degenerate batch (shouldn't happen with your K>=5 guarantee)
+            # Degenerate batch (shouldn't happen with K>=5 guarantee)
             return features.sum() * 0.0   # zero loss, keeps grad graph alive
 
         loss_per_anchor = -(pos_mask * log_prob).sum(dim=1) / (n_positives + 1e-9)  # (N,)
@@ -696,7 +697,12 @@ class RoMAEPreTrainingContrastive(RoMAEForPreTraining):
         super().__init__(config)
         
         self.contrastive_config = contrastive_config
-        
+
+        if self.contrastive_config.projection_head:
+            self.proj_in = self.contrastive_config.cls_contrastive_dim if self.contrastive_config.cls_contrastive_dim is not None else config.encoder_config.d_model
+            self.hidden = self.contrastive_config.projection_hidden_dim if self.contrastive_config.projection_hidden_dim is not None else self.proj_in
+            self.projection_head = OGProjectionHead(self.proj_in, self.hidden, self.proj_in)
+                
         # Determine projection input dimension
         d_model = self.encoder.config.d_model
        
@@ -825,7 +831,7 @@ class RoMAEPreTrainingContrastive(RoMAEForPreTraining):
         cls_full: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
-        Extract and project CLS token.
+        Extract and project CLS token. MEANS THAT THIS GIVES THE OUTPUT OF PROJECTION HEAD IF DEFINED
         
         Returns:
             cls_contrastive: CLS portion for contrastive
@@ -834,13 +840,33 @@ class RoMAEPreTrainingContrastive(RoMAEForPreTraining):
         # 
         
         # Split CLS if configured
-        if self.contrastive_config.cls_contrastive_dim:
+        if self.contrastive_config.cls_contrastive_dim is not None:
             cls_contrastive = cls_full[:, :self.contrastive_config.cls_contrastive_dim]
         else:
             cls_contrastive = cls_full
         
         # Project for contrastive learning
-        # projections = self.projection_head(cls_contrastive)
+        cls_contrastive = self.projection_head(cls_contrastive)
+        
+        return cls_contrastive, cls_full
+
+    def extract_cls_noproj(self,
+        cls_full: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Extract the contrastive part of the CLS token
+        
+        Returns:
+            cls_contrastive: CLS portion for contrastive
+            cls_full: Full CLS token
+        """
+        # 
+        
+        # Split CLS if configured
+        if self.contrastive_config.cls_contrastive_dim is not None:
+            cls_contrastive = cls_full[:, :self.contrastive_config.cls_contrastive_dim]
+        else:
+            cls_contrastive = cls_full
         
         return cls_contrastive, cls_full
     
@@ -895,6 +921,7 @@ class RoMAEPreTrainingContrastive(RoMAEForPreTraining):
         ## With SupCon, we don't need to augment
 
         outputs_aug1 = self.forward_cls(values, mask, positions, pad_mask, decode=(self.contrastive_config.recon_weight > 0))
+        
         proj_aug1, _ = self.extract_cls_and_project(outputs_aug1['embeddings'][:,0,:])
         
         

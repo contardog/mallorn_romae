@@ -771,7 +771,7 @@ class MallornDatasetwLabelTrimMask(Dataset):
         if keep.sum() < 5:
             # replace with a random number / number positions
             
-            keep[np.random.choice(np.arange(len(keep)), size=np.random.randint(np.min(n,5),np.min(n,10)), replace=False)] = True
+            keep[np.random.choice(np.arange(len(keep)), size=np.random.randint(min(n,5),min(n+1,11)), replace=False)] = True
     
         return keep
 
