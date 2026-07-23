@@ -363,7 +363,7 @@ def train_with_cv(X, y, use_catboost=True, random_state=67):
 
         n_pos = y_tr.sum()
         w = (len(y_tr) - n_pos) / n_pos if n_pos > 0 else 1.0
-        mdl = EnsembleClassifier(scale_pos_weight=w) if use_catboost else None
+        mdl = EnsembleClassifier(scale_pos_weight=w) if use_catboost else None ### UHH??!!
         mdl.fit(X_tr, y_tr)
 
         probs = mdl.predict_proba(X_va)[:, 1]
