@@ -1,14 +1,14 @@
 import argparse as ap
 
-def run_preprocess(*_, **__):
+def run_preprocess(args):
     from romae_mallorn import preprocess
     preprocess.preprocess()
 
-def run_plot(*_, **__):
+def run_plot(args):
     from romae_mallorn import plot
     plot.plot()
 
-def run_evaluate(*_, **__):
+def run_evaluate(args):
     from romae_mallorn import evaluate
     evaluate.evaluate(args)
 
@@ -27,7 +27,7 @@ def run_env_pretrain_contrastive(args):
     env_contrastive.env_pretrain_contrastive(args)
  
 
-def run_finetune(*_, **__):
+def run_finetune(args):
     from romae_mallorn import finetune
     finetune.finetune(args)
 

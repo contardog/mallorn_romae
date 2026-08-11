@@ -846,7 +846,9 @@ class RoMAEPreTrainingContrastive(RoMAEForPreTraining):
             cls_contrastive = cls_full
         
         # Project for contrastive learning
-        cls_contrastive = self.projection_head(cls_contrastive)
+        
+        if self.contrastive_config.projection_head:
+            cls_contrastive = self.projection_head(cls_contrastive)
         
         return cls_contrastive, cls_full
 

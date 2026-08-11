@@ -1,10 +1,14 @@
 from typing import Any, Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field
+from pydantic import Field, model_validator
 import torch
 
 torch.backends.cuda.matmul.allow_tf32 = True
 
+import uuid
+
+# def make_run_id() -> str:
+#     return uuid.uuid4().hex[:12]
 
 class MallornConfigContrastiveEnv(BaseSettings):
     """
@@ -20,9 +24,11 @@ class MallornConfigContrastiveEnv(BaseSettings):
     )
 
     # --- Data / run identity ---
-    train_parquet: str = Field(..., description="Path to training parquet")
-    test_parquet: str = Field(..., description="Path to test parquet")
+    train_parquet: Optional[str] = Field(None, description="Path to training parquet")
+    test_parquet: Optional[str] = Field(None, description="Path to test parquet")
     model_name: str = Field(..., description="Run name, used for checkpoint dir and W&B")
+
+    run_id: str = Field(default_factory=lambda: __import__("uuid").uuid4().hex[:12])
 
     # --- Model ---
     model_size: str = Field("super-tiny")
@@ -59,7 +65,42 @@ class MallornConfigContrastiveEnv(BaseSettings):
         None,
         description="If set, forces exactly this many positives per minibatch"
     )
+    K_negative_batch: Optional[int] = Field(
+        None,
+        description="If set, forces exactly this many negatives per minibatch")
 
+    # N_positive_dataset: Optional[int] = Field(
+    #     None,
+    #     description='If set, creates a subsampled training/val datasets from the parquet file given... train parquet? Ignore Test parquet?'
+    # )
+
+    
+    # --- Resampling ---
+    train_pool_parquet: Optional[str] = Field(
+        None, description="Full pool parquet to resample train/val from. If set, overrides train_parquet/test_parquet as data source."
+    )
+    id_column: str = Field("ObjectId", description="Column in pool parquet giving a stable unique identifier per object")
+    n_negative: Optional[int] = Field(None, description="Number of negatives to sample into training set")
+    n_unsup: Optional[int] = Field(None, description="Number of unlabeled examples to sample into training set")
+    n_positive: Optional[int] = Field(None, description="Number of positive examples to sample into training set")
+    val_fraction: float = Field(0.2, description="Fraction of each class held out for validation")
+    resample_seed: Optional[int] = Field(None, description="Seed for train/val resampling; if None, drawn randomly and logged")
+    resample_with_replacement: bool = Field(False) ## Probably should force this to False always because of some issues in sample_train_vla
+    
+    # --- Sampler, extended ---
+    K_unlabeled_batch: Optional[int] = Field(
+        None, description="If set, forces exactly this many unlabeled examples per minibatch"
+    )
+    n_batches_per_epoch: Optional[int] = Field(
+        None, description="Fixes batches/epoch. Should be computed once off the LARGEST N_positive_dataset in a sweep and reused for every run in that sweep, so all runs get equal optimizer step budgets."
+    )
+
+    
+        
+    ### Need something to save the file for idx then? Or make it with a randomly generated tag that has to match the model otherwise it's going 
+    ### to be a fucking mess
+    ### file_idx_trainingsample: Optional[int] = Field( None, description='Required if N_positive_dataset is set')
+    
     # --- Dataset / Observation dropout stuff --- 
     
     obs_dropout_end_trim: float = Field(0.05)      # fraction of seq to trim from ends
@@ -72,3 +113,13 @@ class MallornConfigContrastiveEnv(BaseSettings):
     vega: bool = Field(False, description="Set True on cluster to use sched_getaffinity for worker count")
     project_name: str = Field("contrastive_")
     entity_name: str = Field("contardog-university-of-nova-gorica")
+
+
+    @model_validator(mode="after")
+    def _check_data_source(self):
+        if self.train_pool_parquet is None and (self.train_parquet is None or self.test_parquet is None):
+            raise ValueError(
+                "Set either `train_pool_parquet` (resample train/val from a pool), "
+                "or both `train_parquet` and `test_parquet` (use pre-split files directly)."
+            )
+        return self

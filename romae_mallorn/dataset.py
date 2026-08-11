@@ -677,8 +677,13 @@ class MallornDatasetwLabelTrimMask(Dataset):
         
         self.mask_ratio = mask_ratio
 
-        #if isinstance(parquet_input, str):
-        self.parquet = pl.read_parquet(parquet_file)  
+        if isinstance(parquet_file, str):
+            self.parquet = pl.read_parquet(parquet_file)  
+        elif isinstance(parquet_file, pl.DataFrame):
+            self.parquet = parquet_file
+        else:
+            raise TypeError(f"parquet_file must be str or pl.DataFrame, got {type(parquet_file)}")
+        
         self.parquet = remove_weird_fluxerr(self.parquet) # this removes the weird fluxerr = 1,000,000
         self.parquet = rescale_flux(self.parquet)
         self.parquet = padd_parquet(self.parquet)
